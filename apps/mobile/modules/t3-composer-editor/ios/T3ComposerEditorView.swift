@@ -1230,19 +1230,28 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   }
 
   private func emitContentSizeIfNeeded() {
-    // The laid-out text without insets: the widest line and the stacked lines. One
-    // line's width is the draft's natural width, which lets JS tell whether the draft
-    // fits a narrower row than the one it is laid out in. A trailing newline's empty
-    // line is not part of the used rect, so it is added from the extra fragment.
+    // The laid-out text without insets. A one-line draft reports its natural width, so
+    // JS can tell whether it fits a narrower row than the one it is laid out in; past
+    // one line only the height matters, so layout stops at the second line. The width
+    // comes from the line fragment because usedRect spans the container once the view
+    // scrolls. A trailing newline's empty line only exists as the extra fragment.
     let layout = textView.layoutManager
     let container = textView.textContainer
-    layout.ensureLayout(for: container)
-    let used = layout.usedRect(for: container)
-    var height = used.height
-    if layout.extraLineFragmentTextContainer === container {
+    var lines = 0
+    var width: CGFloat = 0
+    var height: CGFloat = 0
+    let glyphs = NSRange(location: 0, length: layout.numberOfGlyphs)
+    layout.enumerateLineFragments(forGlyphRange: glyphs) { _, used, _, _, stop in
+      lines += 1
+      width = used.width
+      height = used.maxY
+      if lines > 1 { stop.pointee = true }
+    }
+    if lines < 2, layout.extraLineFragmentTextContainer === container {
+      lines += 1
       height = max(height, layout.extraLineFragmentUsedRect.maxY)
     }
-    let nextSize = CGSize(width: ceil(used.width), height: ceil(height))
+    let nextSize = CGSize(width: lines == 1 ? ceil(width) : 0, height: ceil(height))
     guard abs(nextSize.width - lastContentSize.width) > 0.5 ||
       abs(nextSize.height - lastContentSize.height) > 0.5 else {
       return

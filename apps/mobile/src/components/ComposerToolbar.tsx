@@ -25,7 +25,9 @@ const COMPOSER_TOOLBAR_FADE_WIDTH = 18;
 const COMPOSER_TOOLBAR_SCROLL_EPSILON = 4;
 const INLINE_CONTROL_LABEL_ENTERING = FadeIn.duration(160);
 const INLINE_CONTROL_LABEL_EXITING = FadeOut.duration(120);
-const INLINE_CONTROL_WIDTH_TRANSITION = LinearTransition.duration(180);
+// Android runs no composer layout transitions, so the toolbar never trails the dock.
+const INLINE_CONTROL_WIDTH_TRANSITION =
+  Platform.OS === "android" ? undefined : LinearTransition.duration(180);
 
 export function ComposerInlineControl(props: {
   readonly accessibilityHint?: string;

@@ -1000,7 +1000,7 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
                     ? sendPresentation.label
                     : FOLLOW_UP_ACTION_LABEL[sendPresentation.alternate]
                 }
-                scrollEnabled={usesCard}
+                scrollEnabled={isExpanded}
                 singleLineCentered={!usesCard}
                 contentInsetVertical={
                   usesCard || Platform.OS === "android" ? 0 : collapsedEditorInset(bodyText)
