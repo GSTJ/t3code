@@ -1230,7 +1230,19 @@ public final class T3ComposerEditorView: ExpoView, UITextViewDelegate, UITextDro
   }
 
   private func emitContentSizeIfNeeded() {
-    let nextSize = textView.contentSize
+    // The laid-out text without insets: the widest line and the stacked lines. One
+    // line's width is the draft's natural width, which lets JS tell whether the draft
+    // fits a narrower row than the one it is laid out in. A trailing newline's empty
+    // line is not part of the used rect, so it is added from the extra fragment.
+    let layout = textView.layoutManager
+    let container = textView.textContainer
+    layout.ensureLayout(for: container)
+    let used = layout.usedRect(for: container)
+    var height = used.height
+    if layout.extraLineFragmentTextContainer === container {
+      height = max(height, layout.extraLineFragmentUsedRect.maxY)
+    }
+    let nextSize = CGSize(width: ceil(used.width), height: ceil(height))
     guard abs(nextSize.width - lastContentSize.width) > 0.5 ||
       abs(nextSize.height - lastContentSize.height) > 0.5 else {
       return
