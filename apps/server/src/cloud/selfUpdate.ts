@@ -197,7 +197,6 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
           ? Effect.void
           : Effect.logInfo("Removed unused t3 runtimes.", { versions: removed }),
       ),
-      Effect.catch((cause) => Effect.logWarning("Could not prune unused t3 runtimes.", { cause })),
       Effect.forkScoped,
     );
   }
