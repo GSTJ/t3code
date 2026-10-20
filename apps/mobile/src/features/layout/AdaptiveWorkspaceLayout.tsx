@@ -15,6 +15,7 @@ import {
 import {
   createContext,
   use,
+  useDeferredValue,
   useEffect,
   useEffectEvent,
   useMemo,
@@ -287,8 +288,12 @@ function AdaptiveWorkspaceLayoutContent(
   const softKeyboardVisible = useKeyboardState((state) => state.isVisible);
   // Keyed on the soft keyboard, not focus alone: a hardware keyboard leaves room
   // for the sidebar, and Back closes the keyboard while the editor keeps focus.
-  const composerKeyboardActive =
-    Platform.OS === "android" && baseLayout.usesSplitView && composerEditing && softKeyboardVisible;
+  // Deferred because the thread composer follows the keyboard only once its own render of this
+  // keyboard event commits; re-laying out the workspace in that commit held it behind the
+  // keyboard until the feed had reflowed.
+  const composerKeyboardActive = useDeferredValue(
+    Platform.OS === "android" && baseLayout.usesSplitView && composerEditing && softKeyboardVisible,
+  );
   const showPrimarySidebar =
     !workspacePage &&
     (primarySidebarPinned || (primarySidebarPreferredVisible && !composerKeyboardActive));
