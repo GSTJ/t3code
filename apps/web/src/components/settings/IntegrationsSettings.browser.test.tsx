@@ -54,12 +54,16 @@ function setup() {
 }
 
 async function openSettings() {
-  const screen = await render(
-    <StrictMode>
-      <IntegrationsSettingsPanel />
-    </StrictMode>,
+  await using stack = new AsyncDisposableStack();
+  const screen = stack.use(
+    await render(
+      <StrictMode>
+        <IntegrationsSettingsPanel />
+      </StrictMode>,
+    ),
   );
   await vi.waitFor(() => expect(screen.container.querySelector("section#browser")).not.toBeNull());
+  stack.move();
   return screen;
 }
 

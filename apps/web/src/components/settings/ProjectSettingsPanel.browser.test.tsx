@@ -242,13 +242,17 @@ async function mountPanel(search: Omit<SettingsScopeSearch, "project"> = {}) {
   });
   await router.load();
   // The panel's own route tree validates settings search params, which the default router lacks.
-  const screen = await render(
-    <RegistryContext.Provider value={appAtomRegistry}>
-      <RouterProvider router={router} />
-    </RegistryContext.Provider>,
-    { router: false },
+  await using stack = new AsyncDisposableStack();
+  const screen = stack.use(
+    await render(
+      <RegistryContext.Provider value={appAtomRegistry}>
+        <RouterProvider router={router} />
+      </RegistryContext.Provider>,
+      { router: false },
+    ),
   );
   await vi.waitFor(() => expect(nameInput(screen)).not.toBeNull());
+  stack.move();
   return { ...screen, router };
 }
 
