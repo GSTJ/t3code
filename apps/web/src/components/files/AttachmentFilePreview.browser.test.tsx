@@ -1,4 +1,4 @@
-import { act, render, stubGlobal } from "../../../test/render";
+import { act, render, stubGlobal, type Screen } from "../../../test/render";
 import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -34,12 +34,14 @@ describe("attachment HTML preview recovery", () => {
       />,
     );
 
-  const toggleMode = async (label: string) => {
-    const button = document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  const toggleMode = async (screen: Screen, label: string) => {
+    const button = screen.container.querySelector<HTMLButtonElement>(
+      `button[aria-label="${label}"]`,
+    );
     expect(button, label).not.toBeNull();
     await act(async () => button!.click());
   };
-  const alert = () => document.querySelector('[role="alert"]');
+  const alert = (screen: Screen) => screen.container.querySelector('[role="alert"]');
 
   it("keeps a renewed URL for subsequent rendered and source views", async () => {
     setup();
@@ -49,21 +51,21 @@ describe("attachment HTML preview recovery", () => {
       "fetch",
       vi.fn(async () => new Response("<p>Captured HTML</p>")),
     );
-    await using _screen = await openRemote();
-    expect(document.querySelector("iframe")?.getAttribute("src")).toBe(originalUrl);
+    await using screen = await openRemote();
+    expect(screen.container.querySelector("iframe")?.getAttribute("src")).toBe(originalUrl);
     now = 61 * 60_000;
-    await toggleMode("Show HTML source");
+    await toggleMode(screen, "Show HTML source");
     await act(async () => {
       await import("./ReadOnlySourcePreview");
     });
     expect(fetch).toHaveBeenCalledExactlyOnceWith(renewedUrl, expect.any(Object));
     await vi.waitFor(() =>
-      expect(document.querySelector("pre")?.textContent).toBe("<p>Captured HTML</p>"),
+      expect(screen.container.querySelector("pre")?.textContent).toBe("<p>Captured HTML</p>"),
     );
 
-    await toggleMode("Show rendered page");
-    expect(document.querySelector("iframe")?.getAttribute("src")).toBe(renewedUrl);
-    await toggleMode("Show HTML source");
+    await toggleMode(screen, "Show rendered page");
+    expect(screen.container.querySelector("iframe")?.getAttribute("src")).toBe(renewedUrl);
+    await toggleMode(screen, "Show HTML source");
     expect(refresh).toHaveBeenCalledTimes(2);
     expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([renewedUrl, renewedUrl]);
   });
@@ -76,15 +78,15 @@ describe("attachment HTML preview recovery", () => {
       "fetch",
       vi.fn(async () => new Response("<p>Captured HTML</p>")),
     );
-    await using _screen = await openRemote();
+    await using screen = await openRemote();
     now = 61 * 60_000;
     refresh.mockResolvedValue(null);
-    await toggleMode("Show HTML source");
+    await toggleMode(screen, "Show HTML source");
     expect(fetch).not.toHaveBeenCalled();
-    expect(alert()?.textContent).toContain("Reconnect to the environment and try again.");
+    expect(alert(screen)?.textContent).toContain("Reconnect to the environment and try again.");
 
-    await toggleMode("Show rendered page");
-    await toggleMode("Show HTML source");
+    await toggleMode(screen, "Show rendered page");
+    await toggleMode(screen, "Show HTML source");
     expect(refresh).toHaveBeenCalledTimes(3);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -98,7 +100,7 @@ describe("attachment HTML preview recovery", () => {
       vi.fn(async () => new Response("<p>Captured HTML</p>")),
     );
     const file = new Blob([new Uint8Array([0x3c, 0x70, 0x3e, 0xe9])], { type: "text/html" });
-    await using _screen = await render(
+    await using screen = await render(
       <AttachmentFilePreview
         name="document.html"
         mimeType="text/html"
@@ -106,11 +108,11 @@ describe("attachment HTML preview recovery", () => {
         file={file}
       />,
     );
-    await toggleMode("Show HTML source");
-    await vi.waitFor(() => expect(alert()?.textContent).toContain("not UTF-8"));
+    await toggleMode(screen, "Show HTML source");
+    await vi.waitFor(() => expect(alert(screen)?.textContent).toContain("not UTF-8"));
 
-    await toggleMode("Show rendered page");
-    expect(alert()).toBeNull();
-    expect(document.querySelector("iframe")?.title).toBe("document.html");
+    await toggleMode(screen, "Show rendered page");
+    expect(alert(screen)).toBeNull();
+    expect(screen.container.querySelector("iframe")?.title).toBe("document.html");
   });
 });

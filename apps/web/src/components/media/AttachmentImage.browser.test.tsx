@@ -1,4 +1,4 @@
-import { act, render, stubGlobal } from "../../../test/render";
+import { act, render, stubGlobal, type Screen } from "../../../test/render";
 import { expect, it, vi } from "vite-plus/test";
 import { AttachmentImage } from "./AttachmentImage";
 import { prepareImageForAttachment } from "../../lib/imageCompression";
@@ -20,15 +20,15 @@ function setup() {
     .mockResolvedValue({ ok: true, file: jpeg, recompressed: true });
 }
 
-function image() {
-  const img = document.querySelector("img");
+function image(screen: Screen) {
+  const img = screen.container.querySelector("img");
   expect(img).not.toBeNull();
   return img!;
 }
 
 // Stands in for the browser failing to decode the current source.
-async function failDecode() {
-  const img = image();
+async function failDecode(screen: Screen) {
+  const img = image(screen);
   await act(() => {
     img.dispatchEvent(new Event("error"));
   });
@@ -53,8 +53,8 @@ it.each([
       <AttachmentImage src="https://environment.test/photo" name={name} mimeType={mimeType} />,
     );
     expect(fetchImage).not.toHaveBeenCalled();
-    await failDecode();
-    await vi.waitFor(() => expect(image().getAttribute("src")).toBe("blob:jpeg"));
+    await failDecode(screen);
+    await vi.waitFor(() => expect(image(screen).getAttribute("src")).toBe("blob:jpeg"));
     expect(prepareImageForAttachment).toHaveBeenCalledWith(
       expect.objectContaining({ name, type: "image/heic" }),
       50 * 1024 * 1024,
@@ -70,10 +70,10 @@ it("leaves PNG errors to the caller without fetching or converting", async () =>
   using _createUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:jpeg");
   using _revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(revokeUrl);
   const onError = vi.fn();
-  await using _screen = await render(
+  await using screen = await render(
     <AttachmentImage src="blob:png" name="photo.png" onError={onError} />,
   );
-  expectDecodeErrorFor(onError, await failDecode());
+  expectDecodeErrorFor(onError, await failDecode(screen));
   expect(fetchImage).not.toHaveBeenCalled();
 });
 
@@ -84,10 +84,10 @@ it("reports failed HEIC conversion through the existing error handler", async ()
   using _revokeUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(revokeUrl);
   const onError = vi.fn();
   vi.mocked(prepareImageForAttachment).mockResolvedValue({ ok: false, reason: "unreadable" });
-  await using _screen = await render(
+  await using screen = await render(
     <AttachmentImage src="blob:heic" name="photo.heif" onError={onError} />,
   );
-  expectDecodeErrorFor(onError, await failDecode());
+  expectDecodeErrorFor(onError, await failDecode(screen));
   expect(URL.createObjectURL).not.toHaveBeenCalled();
 });
 
@@ -103,10 +103,10 @@ it("discards an old decode when navigating to a different source", async () => {
     }),
   );
   await using screen = await render(<AttachmentImage src="blob:first" name="photo.heic" />);
-  await failDecode();
+  await failDecode(screen);
   await screen.rerender(<AttachmentImage src="blob:second" name="photo.heic" />);
   await act(() => finishDecode({ ok: true, file: jpeg, recompressed: true }));
-  expect(image().getAttribute("src")).toBe("blob:second");
+  expect(image(screen).getAttribute("src")).toBe("blob:second");
   expect(URL.createObjectURL).not.toHaveBeenCalled();
   expect(fetchImage.mock.calls[0]?.[1].signal.aborted).toBe(true);
 });

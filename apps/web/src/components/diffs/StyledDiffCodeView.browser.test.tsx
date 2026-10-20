@@ -164,9 +164,6 @@ describe("code-view worker lifecycle", () => {
   async function workerEnvironment() {
     await using stack = new AsyncDisposableStack();
     stack.use(fakeTimers({ toFake: ["setTimeout", "clearTimeout"] }));
-    stack.defer(async () => {
-      await vi.runOnlyPendingTimersAsync();
-    });
     // Pins the pool at two workers whatever machine runs the suite.
     stack.use(vi.spyOn(navigator, "hardwareConcurrency", "get").mockReturnValue(2));
     const initialize = WorkerPoolManager.prototype.initialize;
@@ -180,6 +177,9 @@ describe("code-view worker lifecycle", () => {
         return pending;
       }),
     );
+    stack.defer(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
     return stack.move();
   }
 

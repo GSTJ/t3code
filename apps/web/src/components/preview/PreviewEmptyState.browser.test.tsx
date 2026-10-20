@@ -1,4 +1,4 @@
-import { act, render } from "../../../test/render";
+import { act, render, type Screen } from "../../../test/render";
 import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -50,8 +50,8 @@ async function renderPreview(
   );
 }
 
-function button(name: string) {
-  const match = [...document.querySelectorAll("button")].find(
+function button(screen: Screen, name: string) {
+  const match = [...screen.container.querySelectorAll("button")].find(
     (element) => element.getAttribute("aria-label") === name || element.textContent?.includes(name),
   );
   expect(match, `button ${name}`).toBeDefined();
@@ -72,10 +72,10 @@ describe("PreviewEmptyState", () => {
     expect(text).toContain("Recent Local");
     expect(text).toContain("node");
 
-    await act(async () => button("Admin").click());
+    await act(async () => button(screen, "Admin").click());
     expect(onOpenUrl).toHaveBeenCalledExactlyOnceWith("https://myapp.test/admin#users");
 
-    await act(async () => button("Remove myapp.test/admin#users from history").click());
+    await act(async () => button(screen, "Remove myapp.test/admin#users from history").click());
     expect(onRemoveRecent).toHaveBeenCalledExactlyOnceWith("https://myapp.test/admin#users");
   });
 
@@ -96,6 +96,6 @@ describe("PreviewEmptyState", () => {
     setup();
     await using screen = await renderPreview([{ url: "https://myapp.test/", lastVisitedAt: 1e20 }]);
     expect(screen.container.textContent).toContain("myapp.test");
-    button("Remove myapp.test from history");
+    button(screen, "Remove myapp.test from history");
   });
 });

@@ -172,13 +172,13 @@ describe("a failed batch that the host partly applied", () => {
     );
     host.refresh.mockImplementation(() => {
       host.data = answer("viewed");
-      void screen.rerender();
     });
     await act(() => {
       view().setViewed("a.ts", true);
       view().setViewed("b.ts", true);
     });
     await act(async () => vi.advanceTimersByTimeAsync(500));
+    await screen.rerender();
     expect(view().isViewed("a.ts")).toBe(true);
     expect(view().isViewed("b.ts")).toBe(false);
   });

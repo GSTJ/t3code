@@ -1,4 +1,4 @@
-import { act, render } from "../../../test/render";
+import { act, render, type Screen } from "../../../test/render";
 import { AuthSourceControlWriteScope, EnvironmentId } from "@t3tools/contracts";
 import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
@@ -55,15 +55,15 @@ async function openEditor(options?: { value?: string; allowEmpty?: boolean }) {
   );
 }
 
-function button(label: string) {
-  const match = [...document.querySelectorAll("button")].find(
+function button(screen: Screen, label: string) {
+  const match = [...screen.container.querySelectorAll("button")].find(
     (element) => element.textContent === label,
   );
   expect(match, `button ${label}`).toBeDefined();
   return match!;
 }
 
-const clickSave = () => act(async () => button("Save").click());
+const clickSave = (screen: Screen) => act(async () => button(screen, "Save").click());
 
 async function grant(allowed: boolean) {
   await act(async () => {
@@ -76,10 +76,10 @@ async function grant(allowed: boolean) {
 it("does not save a secondary environment's description using the primary grant", async () => {
   setup();
   permissions.allowed.add(primary);
-  await using _screen = await openEditor();
+  await using screen = await openEditor();
 
-  expect(button("Save").disabled).toBe(true);
-  await clickSave();
+  expect(button(screen, "Save").disabled).toBe(true);
+  await clickSave(screen);
 
   expect(onSave).not.toHaveBeenCalled();
 });
@@ -87,11 +87,11 @@ it("does not save a secondary environment's description using the primary grant"
 it("rejects a Save click when the grant changes before React updates", async () => {
   setup();
   permissions.allowed.add(secondary);
-  await using _screen = await openEditor();
+  await using screen = await openEditor();
   permissions.allowed.delete(secondary);
 
-  expect(button("Save").disabled).toBe(false);
-  await clickSave();
+  expect(button(screen, "Save").disabled).toBe(false);
+  await clickSave(screen);
 
   expect(onSave).not.toHaveBeenCalled();
 });
@@ -99,50 +99,50 @@ it("rejects a Save click when the grant changes before React updates", async () 
 it("keeps an edited draft through revocation and saves it after access returns without remounting", async () => {
   setup();
   permissions.allowed.add(secondary);
-  await using _screen = await openEditor();
-  const textarea = document.querySelector("textarea")!;
+  await using screen = await openEditor();
+  const textarea = screen.container.querySelector("textarea")!;
   await userEvent.clear(textarea);
   await userEvent.type(textarea, "Keep these unsaved edits");
 
   await grant(false);
-  expect(button("Save").disabled).toBe(true);
-  expect(document.querySelector("textarea")).toBe(textarea);
+  expect(button(screen, "Save").disabled).toBe(true);
+  expect(screen.container.querySelector("textarea")).toBe(textarea);
 
   await grant(true);
-  await clickSave();
+  await clickSave(screen);
   expect(onSave).toHaveBeenCalledExactlyOnceWith("Keep these unsaved edits");
 });
 
 it("saves with source-control permission alone, from the button or Cmd/Ctrl+Enter", async () => {
   setup();
   permissions.allowed.add(secondary);
-  await using _screen = await openEditor();
+  await using screen = await openEditor();
 
-  await clickSave();
+  await clickSave(screen);
   expect(onSave).toHaveBeenCalledExactlyOnceWith("Original description");
 
-  document.querySelector("textarea")!.focus();
+  screen.container.querySelector("textarea")!.focus();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   expect(onSave).toHaveBeenCalledTimes(2);
 });
 
 it("allows clearing a description only after a pending grant becomes available", async () => {
   setup();
-  await using _screen = await openEditor({ value: "", allowEmpty: true });
-  await clickSave();
+  await using screen = await openEditor({ value: "", allowEmpty: true });
+  await clickSave(screen);
   expect(onSave).not.toHaveBeenCalled();
 
   await grant(true);
-  await clickSave();
+  await clickSave(screen);
   expect(onSave).toHaveBeenCalledExactlyOnceWith("");
 });
 
 it("keeps cancelling a local edit available without a write grant", async () => {
   setup();
-  await using _screen = await openEditor();
+  await using screen = await openEditor();
 
-  await act(async () => button("Cancel").click());
-  document.querySelector("textarea")!.focus();
+  await act(async () => button(screen, "Cancel").click());
+  screen.container.querySelector("textarea")!.focus();
   await userEvent.keyboard("{Escape}");
 
   expect(onCancel).toHaveBeenCalledTimes(2);
