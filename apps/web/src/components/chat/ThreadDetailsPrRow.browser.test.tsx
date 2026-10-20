@@ -9,9 +9,7 @@ import {
 import * as Cause from "effect/Cause";
 import { DraftId } from "~/composerDraftStore";
 import { AsyncResult } from "effect/reactivity";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 
 const state = vi.hoisted(() => ({
   status: "success" as PullRequestCheck["status"],
@@ -88,33 +86,12 @@ vi.mock(import("../ui/toast"), async (original) => {
   };
 });
 
+import { act, render as renderUi } from "../../../test/render";
 import { ThreadDetailsPrRow } from "./ThreadDetailsPrRow";
 
-let root: Root;
-let container: HTMLDivElement;
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-  state.checkoutError = null;
-  state.newThread.mockReset().mockResolvedValue({
-    draftId: DraftId.make("new-draft"),
-    threadId: ThreadId.make("new-thread"),
-  });
-  state.prepareThread.mockReset();
-  state.addToast.mockReset().mockReturnValue("checkout-toast");
-  state.updateToast.mockReset();
-});
-afterEach(() => {
-  act(() => root.unmount());
-  document.body.replaceChildren();
-  vi.unstubAllGlobals();
-  state.status = "success";
-  state.extraStatus = null;
-});
-
-it("requires a new merge click after passing checks become pending and pass again", () => {
+it("requires a new merge click after passing checks become pending and pass again", async () => {
+  await using screen = await setup();
+  const { container } = screen;
   const render = () => (
     <ThreadDetailsPrRow
       environmentId={EnvironmentId.make("environment")}
@@ -127,28 +104,28 @@ it("requires a new merge click after passing checks become pending and pass agai
       onOpen={vi.fn()}
     />
   );
-  const clickMerge = () =>
-    act(() => {
+  const clickMerge = async () =>
+    await act(async () => {
       [...container.querySelectorAll("button")]
         .find((button) => button.textContent?.trim() === "Merge")!
         .click();
     });
   const dialogs = () => [...document.querySelectorAll('[role="alertdialog"]')];
 
-  act(() => root.render(render()));
-  clickMerge();
+  await act(async () => await screen.rerender(render()));
+  await clickMerge();
   expect(dialogs()).toHaveLength(1);
-  act(() => {
+  await act(async () => {
     state.status = "pending";
-    root.render(render());
+    await screen.rerender(render());
   });
   expect(dialogs()).toHaveLength(0);
-  act(() => {
+  await act(async () => {
     state.status = "success";
-    root.render(render());
+    await screen.rerender(render());
   });
   expect(dialogs()).toHaveLength(0);
-  clickMerge();
+  await clickMerge();
   expect(dialogs()).toHaveLength(1);
   expect(state.perform).not.toHaveBeenCalled();
 });
@@ -164,11 +141,13 @@ it.each<[PullRequestCheck["status"], PullRequestCheck["status"], string]>([
   ["neutral", "pending", "1/2"],
   ["failure", "pending", "1/2"],
   ["cancelled", "pending", "1/2"],
-])("counts finished checks while work remains (%s, %s)", (status, extraStatus, count) => {
+])("counts finished checks while work remains (%s, %s)", async (status, extraStatus, count) => {
+  await using screen = await setup();
+  const { container } = screen;
   state.status = status;
   state.extraStatus = extraStatus;
-  act(() => {
-    root.render(
+  await act(async () => {
+    await screen.rerender(
       <ThreadDetailsPrRow
         environmentId={EnvironmentId.make("environment")}
         pr={null}
@@ -188,6 +167,8 @@ it.each<[PullRequestCheck["status"], PullRequestCheck["status"], string]>([
 });
 
 it("shows the current checkout recovery detail when fixing checks fails and is retried", async () => {
+  await using screen = await setup();
+  const { container } = screen;
   state.status = "failure";
   const first = new GitManagerError({
     cwd: "/workspace",
@@ -201,7 +182,7 @@ it("shows the current checkout recovery detail when fixing checks fails and is r
     detail: "The worktree directory already exists. Choose another directory.",
   });
   await act(async () => {
-    root.render(
+    await screen.rerender(
       <ThreadDetailsPrRow
         environmentId={EnvironmentId.make("environment")}
         pr={null}
@@ -231,3 +212,19 @@ it("shows the current checkout recovery detail when fixing checks fails and is r
     second.detail,
   ]);
 });
+
+async function setup() {
+  state.perform.mockReset();
+  state.checkoutError = null;
+  state.newThread.mockReset().mockResolvedValue({
+    draftId: DraftId.make("new-draft"),
+    threadId: ThreadId.make("new-thread"),
+  });
+  state.prepareThread.mockReset();
+  state.addToast.mockReset().mockReturnValue("checkout-toast");
+  state.updateToast.mockReset();
+
+  state.status = "success";
+  state.extraStatus = null;
+  return renderUi(null);
+}
