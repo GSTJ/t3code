@@ -2352,6 +2352,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     if (previousContentWidth.current === contentWidth) return;
     previousContentWidth.current = contentWidth;
     if (hasHtmlRenders) listRef.current?.clearCaches({ mode: "sizes" });
+    // A reflow can grow the visible rows past LegendList's near-end threshold in one batch, and
+    // maintainScrollAtEnd then stops following. Pin the end the feed was following once the new
+    // sizes are in.
+    if (!endFollowEnabledRef.current || !listRef.current?.getState().isAtEnd) return;
+    const frame = requestAnimationFrame(() => {
+      if (endFollowEnabledRef.current) void listRef.current?.scrollToEnd({ animated: false });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [contentWidth, hasHtmlRenders, listRef]);
 
   const renderItem = (info: { item: PendingThreadFeedEntry; index: number }) => (
