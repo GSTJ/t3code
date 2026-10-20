@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type AppSymbolName, SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text } from "../../components/ui/AppText";
 import { cn } from "../../lib/cn";
-import { dictationLanguageLabel } from "../../lib/dictationLanguages";
+import { dictationLanguageLabel, useDictationLanguages } from "../../lib/dictationLanguages";
 import {
   isMicrophoneDevice,
   type MicrophoneEntry,
@@ -93,6 +93,7 @@ export function SettingsMicrophoneRouteScreen() {
   const insets = useSafeAreaInsets();
   const preferencesResult = useAtomValue(mobilePreferencesAtom);
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
+  const dictationLanguages = useDictationLanguages();
   const ready = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
   const entries = microphoneOrder(
     AsyncResult.isSuccess(preferencesResult) ? preferencesResult.value.microphones : undefined,
@@ -221,6 +222,7 @@ export function SettingsMicrophoneRouteScreen() {
             icon="globe"
             label="Dictation language"
             value={dictationLanguageLabel(
+              dictationLanguages,
               AsyncResult.isSuccess(preferencesResult)
                 ? preferencesResult.value.voiceInputLocale
                 : undefined,

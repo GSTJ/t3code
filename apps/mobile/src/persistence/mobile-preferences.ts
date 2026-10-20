@@ -16,7 +16,6 @@ import {
 } from "@t3tools/contracts";
 import type { ComposerEnterBehavior } from "../lib/composerEnterBehavior";
 import type { FollowUpBehavior } from "../lib/followUpBehavior";
-import { isDictationLanguage } from "../lib/dictationLanguages";
 import { isMicrophoneKind, type MicrophoneEntry } from "../lib/microphonePriority";
 import { MOBILE_THEME_IDS, type MobileThemeId, type MobileThemeMode } from "../lib/mobileTheme";
 import * as MobileDatabase from "./mobile-database";
@@ -73,7 +72,7 @@ export interface Preferences {
   readonly composerEnterBehavior?: ComposerEnterBehavior;
   readonly followUpBehavior?: FollowUpBehavior;
   readonly microphones?: ReadonlyArray<MicrophoneEntry>;
-  /** An id from `DICTATION_LANGUAGES`, or null for the device language. */
+  /** A BCP 47 tag the device can transcribe, or null for the device language. */
   readonly voiceInputLocale?: string | null;
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
@@ -126,6 +125,13 @@ export class MobilePreferencesStore extends Context.Service<
     ) => Effect.Effect<Preferences, MobilePreferencesSaveError>;
   }
 >()("@t3tools/mobile/persistence/MobilePreferencesStore") {}
+
+// Shape only; whether the device can transcribe the tag is checked when preparing voice input.
+const LANGUAGE_TAG = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+
+function isLanguageTag(value: unknown): value is string {
+  return typeof value === "string" && LANGUAGE_TAG.test(value);
+}
 
 function sanitizePreferences(parsed: Preferences): Preferences {
   const preferences: {
@@ -244,7 +250,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
         : [];
     });
   }
-  if (isDictationLanguage(parsed.voiceInputLocale) || parsed.voiceInputLocale === null) {
+  if (parsed.voiceInputLocale === null || isLanguageTag(parsed.voiceInputLocale)) {
     preferences.voiceInputLocale = parsed.voiceInputLocale;
   }
   if (typeof parsed.projectGroupingEnabled === "boolean") {

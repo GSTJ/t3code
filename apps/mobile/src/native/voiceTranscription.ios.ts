@@ -9,6 +9,8 @@ import {
   type VoiceTranscriptionOptions,
 } from "@t3tools/client-runtime/voice-input";
 
+import type { DictationLanguage } from "./voiceTranscription.types";
+
 function getDeviceLocale(): string {
   return Intl.DateTimeFormat().resolvedOptions().locale;
 }
@@ -37,6 +39,11 @@ export function getLocalVoiceTranscriber(preferredLocale?: string): VoiceTranscr
   const locale = preferredLocale ?? getDeviceLocale();
   if (!AppleTranscription.isAvailable(locale)) return null;
   return { prepare: (options) => prepareVoiceTranscription(locale, options) };
+}
+
+export async function getDictationLanguages(): Promise<ReadonlyArray<DictationLanguage>> {
+  const languages = await AppleTranscription.supportedLanguages();
+  return [...languages].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 async function prepareVoiceTranscription(

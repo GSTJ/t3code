@@ -98,13 +98,16 @@ function makePreferencesStore(initialPayload: MobilePreferences.Preferences) {
 }
 
 describe("mobile preferences store", () => {
-  it.effect("keeps a null dictation language and drops an unknown one", () =>
+  it.effect("keeps a null or well-formed dictation language and drops a malformed one", () =>
     Effect.gen(function* () {
       const cleared = yield* makePreferencesStore({ voiceInputLocale: null });
       expect(yield* cleared.store.load).toEqual({ voiceInputLocale: null });
 
-      const unknown = yield* makePreferencesStore({ voiceInputLocale: "xx-XX" });
-      expect(yield* unknown.store.load).toEqual({});
+      const chosen = yield* makePreferencesStore({ voiceInputLocale: "yue-Hant-HK" });
+      expect(yield* chosen.store.load).toEqual({ voiceInputLocale: "yue-Hant-HK" });
+
+      const malformed = yield* makePreferencesStore({ voiceInputLocale: "Portuguese" });
+      expect(yield* malformed.store.load).toEqual({});
     }),
   );
 });

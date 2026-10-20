@@ -6,6 +6,8 @@ import { VoiceTranscriptionError } from "@t3tools/client-runtime/voice-input";
 const mocks = vi.hoisted(() => ({
   isAvailable: vi.fn<(locale: string) => boolean>(),
   prepare: vi.fn<(locale: string) => Promise<string>>(),
+  supportedLanguages:
+    vi.fn<() => Promise<ReadonlyArray<{ readonly id: string; readonly label: string }>>>(),
   transcribe: vi.fn<(audio: ArrayBufferLike, locale: string) => Promise<TranscriptionResult>>(),
   readAudio: vi.fn<() => Promise<ArrayBuffer>>(),
 }));
@@ -14,6 +16,7 @@ vi.mock("@react-native-ai/apple/src/NativeAppleTranscription", () => ({
   default: {
     isAvailable: mocks.isAvailable,
     prepare: mocks.prepare,
+    supportedLanguages: mocks.supportedLanguages,
     transcribe: mocks.transcribe,
   },
 }));
@@ -24,7 +27,7 @@ vi.mock("expo-file-system", () => ({
   },
 }));
 
-import { getLocalVoiceTranscriber } from "./voiceTranscription.ios";
+import { getDictationLanguages, getLocalVoiceTranscriber } from "./voiceTranscription.ios";
 
 const audio = new ArrayBuffer(4);
 const nativeTranscript: TranscriptionResult = {
@@ -153,4 +156,26 @@ describe("getLocalVoiceTranscriber", () => {
       expect(error).toMatchObject({ code: "cancelled" });
     },
   );
+});
+
+describe("getDictationLanguages", () => {
+  it("lists what the device supports, sorted by name", async () => {
+    mocks.supportedLanguages.mockResolvedValue([
+      { id: "pt-BR", label: "Português (Brasil)" },
+      { id: "de-DE", label: "Deutsch (Deutschland)" },
+      { id: "en-US", label: "English (US)" },
+    ]);
+
+    expect(await getDictationLanguages()).toEqual([
+      { id: "de-DE", label: "Deutsch (Deutschland)" },
+      { id: "en-US", label: "English (US)" },
+      { id: "pt-BR", label: "Português (Brasil)" },
+    ]);
+  });
+
+  it("is empty where the device cannot transcribe", async () => {
+    mocks.supportedLanguages.mockResolvedValue([]);
+
+    expect(await getDictationLanguages()).toEqual([]);
+  });
 });
