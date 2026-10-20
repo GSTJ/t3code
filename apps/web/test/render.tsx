@@ -39,11 +39,16 @@ function createTestRouter(path: string): AnyRouter {
   return createRouter({
     routeTree: createRootRoute({ component: RoutedUiOutlet }),
     history: createMemoryHistory({ initialEntries: [path] }),
+    // The router's error UI would otherwise turn a crash into a passing negative assertion.
+    disableGlobalCatchBoundary: true,
   });
 }
 
 export interface RenderOptions {
-  /** Rendering into the same container again re-renders in place, like `root.render`. */
+  /**
+   * Rendering into the same container again re-renders in place, like `root.render`,
+   * keeping its first router. Use a new container after `cleanup()`.
+   */
   readonly container?: HTMLElement;
   /** Initial location of the test router, or `false` to render without one. */
   readonly router?: string | false;
