@@ -1,7 +1,6 @@
+import { act, render } from "../../../test/render";
 import { AuthSourceControlWriteScope, EnvironmentId } from "@t3tools/contracts";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 const permissions = vi.hoisted(() => ({
@@ -33,45 +32,31 @@ const primary = EnvironmentId.make("primary");
 const secondary = EnvironmentId.make("secondary");
 const onSave = vi.fn<(next: string) => void>();
 const onCancel = vi.fn<() => void>();
-let root: Root;
-let container: HTMLDivElement;
 
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+function setup() {
   permissions.allowed.clear();
   permissions.listeners.clear();
   onSave.mockReset();
   onCancel.mockReset();
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
-});
-
-afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
+}
 
 async function openEditor(options?: { value?: string; allowEmpty?: boolean }) {
-  await act(async () =>
-    root.render(
-      <PullRequestMarkdownEditor
-        value={options?.value ?? "Original description"}
-        cwd="/repo"
-        environmentId={secondary}
-        label="Pull request description"
-        saving={false}
-        allowEmpty={options?.allowEmpty ?? false}
-        onSave={onSave}
-        onCancel={onCancel}
-      />,
-    ),
+  return render(
+    <PullRequestMarkdownEditor
+      value={options?.value ?? "Original description"}
+      cwd="/repo"
+      environmentId={secondary}
+      label="Pull request description"
+      saving={false}
+      allowEmpty={options?.allowEmpty ?? false}
+      onSave={onSave}
+      onCancel={onCancel}
+    />,
   );
 }
 
 function button(label: string) {
-  const match = [...container.querySelectorAll("button")].find(
+  const match = [...document.querySelectorAll("button")].find(
     (element) => element.textContent === label,
   );
   expect(match, `button ${label}`).toBeDefined();
@@ -89,8 +74,9 @@ async function grant(allowed: boolean) {
 }
 
 it("does not save a secondary environment's description using the primary grant", async () => {
+  setup();
   permissions.allowed.add(primary);
-  await openEditor();
+  await using _screen = await openEditor();
 
   expect(button("Save").disabled).toBe(true);
   await clickSave();
@@ -99,8 +85,9 @@ it("does not save a secondary environment's description using the primary grant"
 });
 
 it("rejects a Save click when the grant changes before React updates", async () => {
+  setup();
   permissions.allowed.add(secondary);
-  await openEditor();
+  await using _screen = await openEditor();
   permissions.allowed.delete(secondary);
 
   expect(button("Save").disabled).toBe(false);
@@ -110,15 +97,16 @@ it("rejects a Save click when the grant changes before React updates", async () 
 });
 
 it("keeps an edited draft through revocation and saves it after access returns without remounting", async () => {
+  setup();
   permissions.allowed.add(secondary);
-  await openEditor();
-  const textarea = container.querySelector("textarea")!;
+  await using _screen = await openEditor();
+  const textarea = document.querySelector("textarea")!;
   await userEvent.clear(textarea);
   await userEvent.type(textarea, "Keep these unsaved edits");
 
   await grant(false);
   expect(button("Save").disabled).toBe(true);
-  expect(container.querySelector("textarea")).toBe(textarea);
+  expect(document.querySelector("textarea")).toBe(textarea);
 
   await grant(true);
   await clickSave();
@@ -126,19 +114,21 @@ it("keeps an edited draft through revocation and saves it after access returns w
 });
 
 it("saves with source-control permission alone, from the button or Cmd/Ctrl+Enter", async () => {
+  setup();
   permissions.allowed.add(secondary);
-  await openEditor();
+  await using _screen = await openEditor();
 
   await clickSave();
   expect(onSave).toHaveBeenCalledExactlyOnceWith("Original description");
 
-  container.querySelector("textarea")!.focus();
+  document.querySelector("textarea")!.focus();
   await userEvent.keyboard("{Control>}{Enter}{/Control}");
   expect(onSave).toHaveBeenCalledTimes(2);
 });
 
 it("allows clearing a description only after a pending grant becomes available", async () => {
-  await openEditor({ value: "", allowEmpty: true });
+  setup();
+  await using _screen = await openEditor({ value: "", allowEmpty: true });
   await clickSave();
   expect(onSave).not.toHaveBeenCalled();
 
@@ -148,10 +138,11 @@ it("allows clearing a description only after a pending grant becomes available",
 });
 
 it("keeps cancelling a local edit available without a write grant", async () => {
-  await openEditor();
+  setup();
+  await using _screen = await openEditor();
 
   await act(async () => button("Cancel").click());
-  container.querySelector("textarea")!.focus();
+  document.querySelector("textarea")!.focus();
   await userEvent.keyboard("{Escape}");
 
   expect(onCancel).toHaveBeenCalledTimes(2);
