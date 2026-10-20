@@ -74,6 +74,22 @@ describe("getLocalVoiceTranscriber", () => {
     expect(mocks.transcribe).toHaveBeenCalledWith(audio, "sv-SE");
   });
 
+  it("prepares the chosen dictation language instead of the device language", async () => {
+    const resolvedOptions = Intl.DateTimeFormat().resolvedOptions();
+    vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions").mockReturnValue({
+      ...resolvedOptions,
+      locale: "en-US",
+    });
+    mocks.prepare.mockResolvedValue("pt_BR");
+
+    const prepared = await getLocalVoiceTranscriber("pt-BR")!.prepare({
+      signal: new AbortController().signal,
+    });
+
+    expect(mocks.prepare).toHaveBeenCalledWith("pt-BR");
+    expect(prepared.locale).toBe("pt_BR");
+  });
+
   it("does not start native transcription after cancellation during a file read", async () => {
     const enteredRead = deferred<void>();
     const readResult = deferred<ArrayBuffer>();
