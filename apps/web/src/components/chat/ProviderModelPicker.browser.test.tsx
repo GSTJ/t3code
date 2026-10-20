@@ -37,11 +37,6 @@ vi.mock(import("~/hooks/useSettings"), async (original) => ({
   },
 }));
 
-vi.mock(import("@tanstack/react-router"), async (original) => ({
-  ...(await original()),
-  useNavigate: () => vi.fn(),
-}));
-
 function providerEntry(instanceId: string, driver: string) {
   const provider: ServerProvider = {
     instanceId: ProviderInstanceId.make(instanceId),

@@ -77,9 +77,10 @@ import { render as renderUi } from "../../../test/render";
 import { McpAppFrame } from "./McpAppFrame";
 
 function setup() {
+  let skew = 0;
+  // Advance the host cooldown without manufacturing browser user activation.
   const now = performance.now.bind(performance);
   const clock = vi.spyOn(performance, "now").mockImplementation(() => now() + skew);
-  let skew = 0;
   const answers: string[] = [];
   let answered: (() => void) | undefined;
   const onProbe = (event: MessageEvent) => {
