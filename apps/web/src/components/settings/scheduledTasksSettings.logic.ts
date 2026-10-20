@@ -9,7 +9,12 @@ import {
   type ProviderInteractionMode,
   type ServerSettings,
 } from "@t3tools/contracts";
-import { parseMaxDeliveryAge } from "@t3tools/client-runtime/scheduled-task-webhook";
+import {
+  parseMaxDeliveryAge,
+  parseWebhookFilterDrafts,
+  webhookFilterDrafts,
+  type WebhookFilterDraft,
+} from "@t3tools/client-runtime/scheduled-task-webhook";
 
 import {
   resolveProjectSettings,
@@ -77,6 +82,7 @@ export interface DraftState {
   /** Write-only: empty keeps the secret already stored on the server. */
   readonly signatureSecret: string;
   readonly maxDeliveryAgeMinutes: string;
+  readonly filters: ReadonlyArray<WebhookFilterDraft>;
 }
 
 export const WEBHOOK_SIGNATURE_DEFAULTS = {
@@ -89,6 +95,8 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
   if (draft.scheduleMode === "webhook") {
     const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
     if (maxDeliveryAgeMinutes === undefined) return null;
+    const parsedFilters = parseWebhookFilterDrafts(draft.filters);
+    if (!("filters" in parsedFilters)) return null;
     const secret = draft.signatureSecret.trim();
     return {
       type: "webhook",
@@ -101,6 +109,7 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
           }
         : null,
       maxDeliveryAgeMinutes,
+      ...(parsedFilters.filters.length > 0 ? { filters: parsedFilters.filters } : {}),
     };
   }
   if (draft.scheduleMode === "interval") {
@@ -161,6 +170,7 @@ export function taskToDraft(task: ScheduledTask): DraftState {
       schedule.type === "webhook" && schedule.maxDeliveryAgeMinutes != null
         ? String(schedule.maxDeliveryAgeMinutes)
         : "",
+    filters: webhookFilterDrafts(schedule.type === "webhook" ? schedule.filters : undefined),
   };
 }
 

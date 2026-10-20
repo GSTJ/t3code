@@ -953,3 +953,80 @@ it.effect("counts each handled request by what happened to it", () =>
     }),
   ),
 );
+
+it.effect("checks filters after the signature and max age, and runs only matching deliveries", () =>
+  withService(({ service, launches }) =>
+    Effect.gen(function* () {
+      const { task } = yield* service.upsert(
+        yield* webhookTaskInput({
+          schedule: {
+            type: "webhook",
+            signature: {
+              header: "x-hub-signature-256",
+              encoding: "hex",
+              prefix: "sha256=",
+              secret: "s3cret",
+            },
+            maxDeliveryAgeMinutes: 30,
+            filters: [
+              { path: "headers.x-github-event", op: "equals", value: "pull_request" },
+              { path: "body.action", op: "in", value: ["opened", "reopened"] },
+            ],
+          },
+        }),
+      );
+      const delivery = (
+        event: string,
+        action: string,
+        options: { readonly signed?: boolean; readonly receivedAt?: string } = {},
+      ) => {
+        const body = new TextEncoder().encode(
+          JSON.stringify({ action, pull_request: { url: "https://github.com/org/repo/pull/45" } }),
+        );
+        const signature = `sha256=${NodeCrypto.createHmac("sha256", "s3cret").update(body).digest("hex")}`;
+        return requestFor(task, {
+          headers: {
+            "content-type": "application/json",
+            "x-github-event": event,
+            ...(options.signed === false ? {} : { "x-hub-signature-256": signature }),
+          },
+          body,
+          bodyText: new TextDecoder().decode(body),
+          ...(options.receivedAt === undefined
+            ? {}
+            : { relayDeliveryId: "old", receivedAt: options.receivedAt }),
+        });
+      };
+      const now = yield* DateTime.now;
+      const old = DateTime.formatIso(DateTime.subtract(now, { minutes: 31 }));
+
+      // A request failing a filter is still refused first for its signature or age.
+      const unsigned = yield* service.triggerWebhook(delivery("push", "opened", { signed: false }));
+      assert.equal(unsigned._tag, "rejected_signature");
+      const tooOld = yield* service.triggerWebhook(delivery("push", "opened", { receivedAt: old }));
+      assert.equal(tooOld._tag, "expired");
+
+      const wrongEvent = yield* service.triggerWebhook(delivery("push", "opened"));
+      const wrongAction = yield* service.triggerWebhook(delivery("pull_request", "closed"));
+      assert.deepInclude(wrongEvent, { _tag: "accepted", outcome: "filtered" });
+      assert.deepInclude(wrongAction, { _tag: "accepted", outcome: "filtered" });
+      assert.equal(yield* Queue.size(launches), 0);
+      const [listed] = (yield* service.list()).tasks;
+      assert.equal(listed?.runCount, 0);
+      assert.equal(listed?.lastRunStatus, "never");
+
+      const matched = yield* service.triggerWebhook(delivery("pull_request", "opened"));
+      assert.deepInclude(matched, { _tag: "accepted", outcome: "accepted" });
+      assert.include((yield* Queue.take(launches)).initialMessage?.text ?? "", "pull/45");
+
+      const deliveries = (yield* service.listWebhookDeliveries({ id: task.id })).deliveries;
+      const filtered = deliveries
+        .filter((entry) => entry.outcome === "filtered")
+        .map((entry) => [entry.signatureVerified, entry.error]);
+      assert.sameDeepMembers(filtered, [
+        [true, "Filter 1 (headers.x-github-event) did not match."],
+        [true, "Filter 2 (body.action) did not match."],
+      ]);
+    }),
+  ),
+);

@@ -53,6 +53,7 @@ import {
   renderWebhookPrompt,
   type WebhookRequest,
 } from "./webhookTemplate.ts";
+import { describeFailedWebhookFilter, findFailedWebhookFilter } from "./webhookFilter.ts";
 import { constantTimeEquals, verifyWebhookSignature } from "./webhookVerification.ts";
 
 export const WEBHOOK_ROUTE_PREFIX = "/api/hooks";
@@ -114,6 +115,7 @@ export type WebhookDeliveryOutcome =
   | "disabled"
   | "rejected_signature"
   | "expired"
+  | "filtered"
   | "not_found"
   | "error";
 
@@ -121,7 +123,7 @@ export type WebhookTriggerResult =
   | {
       readonly _tag: "accepted";
       readonly deliveryId: ScheduledTaskWebhookDeliveryId;
-      readonly outcome: "accepted" | "duplicate" | "prompt_too_long";
+      readonly outcome: "accepted" | "duplicate" | "prompt_too_long" | "filtered";
     }
   | { readonly _tag: "not_found" }
   | { readonly _tag: "rejected_signature" }
@@ -995,6 +997,7 @@ export const layer = Layer.effect(
                       prefix: input.schedule.signature.prefix,
                     },
               maxDeliveryAgeMinutes: input.schedule.maxDeliveryAgeMinutes ?? null,
+              ...(input.schedule.filters?.length ? { filters: input.schedule.filters } : {}),
             }
           : input.schedule;
       const webhook =
@@ -1558,6 +1561,18 @@ export const layer = Layer.effect(
             yield* log("expired", { signatureVerified: signature !== null });
             yield* observe("expired");
             return { _tag: "expired" as const };
+          }
+
+          // Filters: a request the task does not care about is accepted, so
+          // the sender does not retry it, and logged without starting a run.
+          const failedFilter = findFailedWebhookFilter(schedule.filters ?? [], request);
+          if (failedFilter !== null) {
+            yield* log("filtered", {
+              signatureVerified: signature !== null,
+              error: describeFailedWebhookFilter(failedFilter),
+            });
+            yield* observe("filtered");
+            return { _tag: "accepted" as const, deliveryId, outcome: "filtered" as const };
           }
 
           const frameId = yield* crypto.randomBytes(6).pipe(

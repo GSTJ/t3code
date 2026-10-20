@@ -218,6 +218,26 @@ describe("webhook scheduled tasks", () => {
       expect(scheduleFromDraft({ ...draft, maxDeliveryAgeMinutes: invalid })).toBeNull();
     }
   });
+
+  it("round-trips filters and refuses to build a schedule with an invalid one", () => {
+    const filters = [
+      { path: "headers.x-github-event", op: "equals", value: "pull_request" },
+      { path: "body.action", op: "in", value: ["opened", "reopened"] },
+    ] as const;
+    const draft = taskToDraft({
+      ...webhookTask,
+      schedule: { type: "webhook", signature, filters },
+    });
+    expect(draft.filters.map((filter) => filter.op)).toEqual(["equals", "in"]);
+    expect(scheduleFromDraft(draft)).toMatchObject({ filters });
+    expect(scheduleFromDraft({ ...draft, filters: [] })).not.toHaveProperty("filters");
+    expect(
+      scheduleFromDraft({
+        ...draft,
+        filters: [{ path: "body.action", op: "matches", value: "(unclosed" }],
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("scheduled task model defaults", () => {

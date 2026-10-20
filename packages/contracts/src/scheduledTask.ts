@@ -83,12 +83,68 @@ const WebhookMaxDeliveryAgeMinutes = Schema.Int.check(
     "Skip requests the relay held longer than this many minutes while the environment was offline. Null runs every request.",
 });
 
+export const MAX_WEBHOOK_FILTERS = 16;
+export const MAX_WEBHOOK_FILTER_PATTERN_LENGTH = 256;
+
+const WebhookFilterPath = TrimmedNonEmptyString.check(
+  Schema.isPattern(/^(body|headers|query)(\.|$)/),
+).annotate({
+  description:
+    "Request value to test, in placeholder syntax without braces: headers.x-github-event, body.action, query.source.",
+});
+
+const WebhookFilterPattern = Schema.String.check(
+  Schema.isMaxLength(MAX_WEBHOOK_FILTER_PATTERN_LENGTH),
+  Schema.makeFilter(
+    (pattern: string) => {
+      try {
+        return RegExp(pattern) instanceof RegExp;
+      } catch {
+        return "an invalid regular expression";
+      }
+    },
+    { expected: "a valid regular expression" },
+  ),
+).annotate({ description: "Unanchored JavaScript regular expression." });
+
+export const ScheduledTaskWebhookFilter = Schema.Union([
+  Schema.Struct({
+    path: WebhookFilterPath,
+    op: Schema.Literals(["equals", "notEquals", "startsWith"]),
+    value: Schema.String,
+  }),
+  Schema.Struct({
+    path: WebhookFilterPath,
+    op: Schema.Literal("in"),
+    value: Schema.Array(Schema.String),
+  }),
+  Schema.Struct({
+    path: WebhookFilterPath,
+    op: Schema.Literal("matches"),
+    value: WebhookFilterPattern,
+  }),
+  Schema.Struct({ path: WebhookFilterPath, op: Schema.Literal("exists") }),
+]).annotate({
+  description:
+    "Scalars compare as strings; objects and arrays only satisfy 'exists'. Every op but 'exists' fails when the path is missing.",
+});
+export type ScheduledTaskWebhookFilter = typeof ScheduledTaskWebhookFilter.Type;
+export type ScheduledTaskWebhookFilterOp = ScheduledTaskWebhookFilter["op"];
+
+const ScheduledTaskWebhookFilters = Schema.Array(ScheduledTaskWebhookFilter)
+  .check(Schema.isMaxLength(MAX_WEBHOOK_FILTERS))
+  .annotate({
+    description:
+      "Run only when every filter matches the request; other requests are logged as filtered. Up to 16.",
+  });
+
 const ScheduledTaskWebhookSchedule = Schema.Struct({
   type: Schema.Literal("webhook").annotate({
     description: "Run when the task's webhook URL receives a request.",
   }),
   signature: Schema.NullOr(ScheduledTaskWebhookSignature),
   maxDeliveryAgeMinutes: Schema.optional(Schema.NullOr(WebhookMaxDeliveryAgeMinutes)),
+  filters: Schema.optional(ScheduledTaskWebhookFilters),
 }).annotate({
   description:
     "Run on each request to the task's webhook URL. The prompt may use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} and {{request}} placeholders.",
@@ -115,6 +171,7 @@ const ScheduledTaskUpsertWebhookSchedule = Schema.Struct({
     description: "Signature check; omit or null to accept requests by URL token only.",
   }),
   maxDeliveryAgeMinutes: Schema.optional(Schema.NullOr(WebhookMaxDeliveryAgeMinutes)),
+  filters: Schema.optional(ScheduledTaskWebhookFilters),
 }).annotate({
   description:
     "Run on each request to the task's webhook URL. The prompt may use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} and {{request}} placeholders.",
@@ -255,6 +312,7 @@ export const ScheduledTaskWebhookDeliveryOutcome = Schema.Literals([
   "disabled",
   "rate_limited",
   "expired",
+  "filtered",
 ]);
 export type ScheduledTaskWebhookDeliveryOutcome = typeof ScheduledTaskWebhookDeliveryOutcome.Type;
 

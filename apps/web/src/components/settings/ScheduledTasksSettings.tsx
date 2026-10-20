@@ -26,9 +26,16 @@ import type {
   ScheduledTaskWebhookDeliverySummary,
   ThreadId,
 } from "@t3tools/contracts";
-import { DEFAULT_WEBHOOK_PROMPT } from "@t3tools/client-runtime/scheduled-task-webhook";
+import {
+  DEFAULT_WEBHOOK_PROMPT,
+  EMPTY_WEBHOOK_FILTER_DRAFT,
+  parseWebhookFilterDrafts,
+  WEBHOOK_FILTER_OPS,
+  type WebhookFilterDraft,
+} from "@t3tools/client-runtime/scheduled-task-webhook";
 import {
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
+  MAX_WEBHOOK_FILTERS,
   MIN_SCHEDULED_TASK_INTERVAL_MS,
   ProviderInstanceId,
   resolveEnvironmentMachineKind,
@@ -144,7 +151,102 @@ const EMPTY_DRAFT: DraftState = {
   ...WEBHOOK_SIGNATURE_DEFAULTS,
   signatureSecret: "",
   maxDeliveryAgeMinutes: "",
+  filters: [],
 };
+
+function WebhookFiltersField({
+  filters,
+  onChange,
+}: {
+  filters: ReadonlyArray<WebhookFilterDraft>;
+  onChange: (filters: ReadonlyArray<WebhookFilterDraft>) => void;
+}) {
+  const update = (index: number, patch: Partial<WebhookFilterDraft>) =>
+    onChange(filters.map((filter, at) => (at === index ? { ...filter, ...patch } : filter)));
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <Label>Filters</Label>
+          <p className="text-sm text-muted-foreground">
+            Run only when every filter matches. Other requests are logged as filtered.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={filters.length >= MAX_WEBHOOK_FILTERS}
+          onClick={() => onChange([...filters, EMPTY_WEBHOOK_FILTER_DRAFT])}
+        >
+          <PlusIcon />
+          Add filter
+        </Button>
+      </div>
+      {filters.map((filter, index) => (
+        // Rows have no identity of their own; removing one re-renders the rest in order.
+        // oxlint-disable-next-line react/no-array-index-key
+        <div key={index} className="flex items-center gap-2">
+          <Input
+            aria-label={`Filter ${index + 1} path`}
+            className="min-w-0 flex-1"
+            placeholder="body.action"
+            value={filter.path}
+            onChange={(event) => update(index, { path: event.target.value })}
+          />
+          <Select
+            value={filter.op}
+            onValueChange={(op) => {
+              const known = WEBHOOK_FILTER_OPS.find((option) => option.op === op);
+              if (known) update(index, { op: known.op });
+            }}
+          >
+            <SelectTrigger
+              size="sm"
+              className="w-36 shrink-0"
+              aria-label={`Filter ${index + 1} test`}
+            >
+              <SelectValue>
+                {WEBHOOK_FILTER_OPS.find((option) => option.op === filter.op)?.label}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {WEBHOOK_FILTER_OPS.map((option) => (
+                <SelectItem key={option.op} value={option.op}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          {filter.op === "exists" ? (
+            <div className="min-w-0 flex-1" />
+          ) : (
+            <Input
+              aria-label={`Filter ${index + 1} value`}
+              className="min-w-0 flex-1"
+              placeholder={
+                filter.op === "in"
+                  ? "opened, reopened"
+                  : filter.op === "matches"
+                    ? "^v\\d+"
+                    : "opened"
+              }
+              value={filter.value}
+              onChange={(event) => update(index, { value: event.target.value })}
+            />
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Remove filter ${index + 1}`}
+            onClick={() => onChange(filters.filter((_, at) => at !== index))}
+          >
+            <Trash2Icon />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function Field({
   label,
@@ -237,10 +339,12 @@ const DELIVERY_OUTCOME_LABELS: Record<ScheduledTaskWebhookDeliveryOutcome, strin
   disabled: "Task paused",
   rate_limited: "Rate limited",
   expired: "Too old",
+  filtered: "Filtered",
 };
 
 function deliveryOutcomeVariant(outcome: ScheduledTaskWebhookDeliveryOutcome) {
   if (outcome === "accepted") return "success";
+  if (outcome === "filtered") return "outline";
   if (outcome === "disabled" || outcome === "rate_limited" || outcome === "expired") {
     return "warning";
   }
@@ -755,7 +859,17 @@ function WebhookDeliveriesDialog({
                   <span className="text-muted-foreground">Signature verified</span>
                 ) : null}
               </div>
-              {selected.error ? <p className="text-sm text-destructive">{selected.error}</p> : null}
+              {selected.error ? (
+                <p
+                  className={
+                    selected.outcome === "filtered"
+                      ? "text-sm text-muted-foreground"
+                      : "text-sm text-destructive"
+                  }
+                >
+                  {selected.error}
+                </p>
+              ) : null}
               <DeliveryBlock title="Prompt sent to the agent">
                 {selected.renderedPrompt ?? "No run was started for this request."}
               </DeliveryBlock>
@@ -798,6 +912,9 @@ function WebhookDeliveriesDialog({
                     <span className="text-muted-foreground">
                       <ScheduledRelativeLabel value={delivery.receivedAt} />
                     </span>
+                    {delivery.outcome === "filtered" && delivery.error ? (
+                      <span className="text-muted-foreground">{delivery.error}</span>
+                    ) : null}
                     {delivery.missingFields.length > 0 ? (
                       <span className="text-muted-foreground">
                         {delivery.missingFields.length} empty placeholder
@@ -1067,6 +1184,14 @@ function ScheduledTaskEditorForm({
       selection === null
     ) {
       reportFailure("Scheduled task is incomplete", "Add a title, prompt, project, and model.");
+      return;
+    }
+    const parsedFilters = parseWebhookFilterDrafts(draft.filters);
+    if (draft.scheduleMode === "webhook" && "invalidIndex" in parsedFilters) {
+      reportFailure(
+        "Invalid filter",
+        `Filter ${parsedFilters.invalidIndex + 1} needs a path under body, headers or query, and a value its test accepts.`,
+      );
       return;
     }
     const schedule = scheduleFromDraft(draft);
@@ -1415,6 +1540,10 @@ function ScheduledTaskEditorForm({
                     }
                   />
                 </Field>
+                <WebhookFiltersField
+                  filters={draft.filters}
+                  onChange={(filters) => setDraft((current) => ({ ...current, filters }))}
+                />
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 space-y-1">
                     <Label htmlFor="scheduled-task-signature">Require signature</Label>

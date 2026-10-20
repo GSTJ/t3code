@@ -65,6 +65,18 @@ describe("scheduleDraftForTask", () => {
     expect(saved).toEqual({ type: "webhook", signature, maxDeliveryAgeMinutes: null });
     expect(saved?.type === "webhook" && saved.signature && "secret" in saved.signature).toBe(false);
   });
+
+  it("round-trips webhook filters and refuses an invalid one", () => {
+    const filters = [
+      { path: "headers.x-github-event", op: "equals", value: "pull_request" },
+      { path: "body.label.name", op: "matches", value: "^agent:" },
+    ] as const;
+    const draft = scheduleDraftForTask({ schedule: { type: "webhook", signature: null, filters } });
+    expect(scheduleFromDraft(draft)).toMatchObject({ filters });
+    expect(
+      scheduleFromDraft({ ...draft, filters: [{ path: "", op: "exists", value: "" }] }),
+    ).toBeNull();
+  });
 });
 
 describe("hasScheduledTaskDraftChanges", () => {
