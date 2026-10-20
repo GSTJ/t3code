@@ -392,10 +392,9 @@ export function launcherOwnsVersionsDir(
 /** The executable a `t3.cmd` shim written by the install script or `t3 update` runs. */
 export const windowsShimTarget = (contents: string) => /^"([^"]+)"/m.exec(contents)?.[1];
 
-/** Versions the `t3` launchers written by the install scripts and `t3 update` point at. */
-const shellLauncherVersions = Effect.fn("cloud.pinned_runtime.shell_launcher_versions")(function* (
+/** Where the `t3` launchers written by the install scripts and `t3 update` point. */
+const shellLauncherTargets = Effect.fn("cloud.pinned_runtime.shell_launcher_targets")(function* (
   baseDir: string,
-  versionsDir: string,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -413,7 +412,7 @@ const shellLauncherVersions = Effect.fn("cloud.pinned_runtime.shell_launcher_ver
       ...(environment["PATH"] ?? environment["Path"] ?? "").split(platform === "win32" ? ";" : ":"),
     ].map((directory) => (directory.trim().length > 0 ? path.join(directory, launcherName) : "")),
   ].filter((launcher) => launcher.trim().length > 0);
-  const versions = new Set<string>();
+  const targets: Array<string> = [];
   for (const launcher of launchers) {
     const target =
       platform === "win32"
@@ -425,20 +424,32 @@ const shellLauncherVersions = Effect.fn("cloud.pinned_runtime.shell_launcher_ver
             Effect.map((link) => path.resolve(path.dirname(launcher), link)),
             Effect.orElseSucceed(() => undefined),
           );
-    if (target === undefined || !launcherOwnsVersionsDir(path, versionsDir, target)) continue;
-    versions.add(path.relative(versionsDir, path.resolve(target)).split(path.sep)[0]!);
+    if (target !== undefined) targets.push(target);
   }
-  return versions;
+  return targets;
 });
 
 /**
- * Command lines show argv, so this only sees runtimes started by absolute path: the service
- * launcher and its children, and anything run through a `t3.cmd` shim. A server started through
- * the `t3` symlink shows up as `t3 serve`; callers keep its version from the server runtime state.
+ * Resolved executables rather than command lines: a server started through the `t3` symlink
+ * shows up as `t3 serve`, possibly from another T3 home that runs this home's runtimes. Windows
+ * has no symlink launcher, and its `t3.cmd` shim runs the absolute path, so command lines do there.
  */
-const runningCommandLines = Effect.fn("cloud.pinned_runtime.running_command_lines")(function* () {
+const runningExecutables = Effect.fn("cloud.pinned_runtime.running_executables")(function* () {
+  const fs = yield* FileSystem.FileSystem;
   const runner = yield* ProcessRunner.ProcessRunner;
   const platform = yield* HostProcess.Platform;
+  if (platform === "linux") {
+    const pids = yield* fs.readDirectory("/proc").pipe(Effect.option);
+    if (Option.isNone(pids)) return Option.none<string>();
+    const executables: Array<string> = [];
+    for (const pid of pids.value) {
+      if (!/^\d+$/.test(pid)) continue;
+      // Other users' processes are unreadable, and none of them run this user's runtimes.
+      const executable = yield* fs.readLink(`/proc/${pid}/exe`).pipe(Effect.option);
+      if (Option.isSome(executable)) executables.push(executable.value);
+    }
+    return executables.length === 0 ? Option.none<string>() : Option.some(executables.join("\n"));
+  }
   const result = yield* runner
     .run({
       ...(platform === "win32"
@@ -451,14 +462,14 @@ const runningCommandLines = Effect.fn("cloud.pinned_runtime.running_command_line
               "Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine",
             ],
           }
-        : { command: "ps", args: ["-ax", "-o", "command="] }),
+        : { command: "lsof", args: ["-nP", "-w", "-d", "txt", "-F", "n"] }),
       timeout: Duration.seconds(10),
       maxOutputBytes: 16 * 1024 * 1024,
     })
     .pipe(Effect.option);
   return Option.isSome(result) && result.value.code === 0 && result.value.stdout.length > 0
     ? Option.some(result.value.stdout)
-    : Option.none();
+    : Option.none<string>();
 });
 
 const selectUnusedRuntimes = Effect.fn("cloud.pinned_runtime.select_unused")(function* (input: {
@@ -471,9 +482,11 @@ const selectUnusedRuntimes = Effect.fn("cloud.pinned_runtime.select_unused")(fun
   const versionsDir = pinnedRuntimeVersionsDir(path, input.baseDir);
   const entries = yield* fs.readDirectory(versionsDir).pipe(Effect.orElseSucceed(() => []));
   // An interrupted prune has already renamed its runtime out of the way.
-  const pruned = entries
-    .filter((entry) => entry.startsWith(PINNED_RUNTIME_PRUNED_PREFIX))
-    .map((entry) => path.join(versionsDir, entry));
+  const pruned = new Set(
+    entries
+      .filter((entry) => entry.startsWith(PINNED_RUNTIME_PRUNED_PREFIX))
+      .map((entry) => path.join(versionsDir, entry)),
+  );
 
   const completed: Array<string> = [];
   for (const version of entries) {
@@ -503,21 +516,29 @@ const selectUnusedRuntimes = Effect.fn("cloud.pinned_runtime.select_unused")(fun
       keep.add(state.update.targetVersion);
     }
   }
-  for (const version of yield* shellLauncherVersions(input.baseDir, versionsDir)) {
-    keep.add(version);
-  }
-  const commandLines = yield* runningCommandLines();
+  const executables = yield* runningExecutables();
   // Without a process list, a runtime in use would look unused.
-  if (Option.isNone(commandLines)) return pruned;
-  const references = [commandLines.value, ...input.references];
+  if (Option.isNone(executables)) return pruned;
+  const references = [
+    executables.value,
+    ...(yield* shellLauncherTargets(input.baseDir)),
+    ...input.references,
+  ];
+  // Process executables are resolved, so they name the real path of a symlinked T3 home.
+  const realVersionsDir = yield* fs
+    .realPath(versionsDir)
+    .pipe(Effect.orElseSucceed(() => versionsDir));
+  const exactKeep = input.keep.filter(isExactServiceVersion);
 
   for (const version of completed) {
     const versionDir = path.join(versionsDir, version);
+    const prefixes = [versionDir, path.join(realVersionsDir, version)].map((dir) => dir + path.sep);
     if (
       keep.has(version) ||
-      // Another process may be installing a newer runtime, so only older ones go.
-      !input.keep.every((kept) => compareExactServiceVersions(version, kept) < 0) ||
-      references.some((reference) => reference.includes(versionDir + path.sep))
+      // Another process may be installing a newer runtime, so only versions older than every
+      // kept one go.
+      !exactKeep.every((kept) => compareExactServiceVersions(version, kept) < 0) ||
+      references.some((reference) => prefixes.some((prefix) => reference.includes(prefix)))
     ) {
       continue;
     }
@@ -526,7 +547,7 @@ const selectUnusedRuntimes = Effect.fn("cloud.pinned_runtime.select_unused")(fun
     // its sentinel and would pass for a complete install.
     yield* fs.remove(target, { recursive: true, force: true }).pipe(
       Effect.andThen(fs.rename(versionDir, target)),
-      Effect.andThen(Effect.sync(() => pruned.push(target))),
+      Effect.andThen(Effect.sync(() => pruned.add(target))),
       Effect.catch((cause) =>
         Effect.logWarning("Could not remove an unused t3 runtime.", { version, cause }),
       ),
@@ -538,8 +559,8 @@ const selectUnusedRuntimes = Effect.fn("cloud.pinned_runtime.select_unused")(fun
 /**
  * Every update publishes a new immutable runtime, so without pruning they pile up. Removes
  * completed runtimes nothing can start again and keeps: the caller's versions, everything the
- * service state references (active, rollback, pending), the `t3` launchers' targets, runtimes
- * named in `references` (such as the service unit) or in a running process's command line, and
+ * service state references (active, rollback, pending), and runtimes that a running process
+ * executes, a `t3` launcher points at, or `references` (such as the service unit) name, plus
  * anything newer than the caller's versions. Staging directories, symlinks, and unexpected entries
  * are never touched. Returns the versions removed.
  */

@@ -8,6 +8,7 @@ import * as Fiber from "effect/Fiber";
 import * as Path from "effect/Path";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
+import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -559,7 +560,7 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
 });
 
 it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
-  const psRunner = (stdout: string) =>
+  const lsofRunner = (stdout: string) =>
     ProcessRunner.ProcessRunner.of({
       run: () =>
         Effect.succeed({
@@ -638,9 +639,9 @@ it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
       }).pipe(
         Effect.provideService(
           ProcessRunner.ProcessRunner,
-          psRunner(`${path.join(versionsDir, "1.3.0", "t3")} serve\n`),
+          lsofRunner(`p42\nftxt\nn${path.join(versionsDir, "1.3.0", "t3")}\n`),
         ),
-        Effect.provideService(HostProcess.Platform, "linux"),
+        Effect.provideService(HostProcess.Platform, "darwin"),
         Effect.provideService(HostProcess.Environment, { T3CODE_INSTALL_BIN_DIR: binDir }),
       );
 
@@ -665,9 +666,9 @@ it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
   );
 
   it.effect.each([
-    { name: "the process list is unavailable", state: undefined, ps: "" },
-    { name: "the service state is unreadable", state: "{", ps: "init\n" },
-  ])("keeps everything when $name", ({ state, ps }) =>
+    { name: "the process list is unavailable", state: undefined, lsof: "" },
+    { name: "the service state is unreadable", state: "{", lsof: "p1\nftxt\nn/sbin/launchd\n" },
+  ])("keeps everything when $name", ({ state, lsof }) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -677,11 +678,39 @@ it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
       }
 
       const removed = yield* prunePinnedRuntimes({ baseDir, keep: ["2.0.0"] }).pipe(
-        Effect.provideService(ProcessRunner.ProcessRunner, psRunner(ps)),
+        Effect.provideService(ProcessRunner.ProcessRunner, lsofRunner(lsof)),
+        Effect.provideService(HostProcess.Platform, "darwin"),
         Effect.provideService(HostProcess.Environment, { T3CODE_INSTALL_BIN_DIR: baseDir }),
       );
       assert.deepEqual(removed, []);
       assert.deepEqual(yield* fs.readDirectory(versionsDir), ["1.0.0"]);
     }),
+  );
+
+  it.effect.skipIf(HostProcess.Platform.defaultValue() !== "linux")(
+    "keeps a runtime a process runs through a symlink",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const { baseDir, versionsDir } = yield* setup(["1.0.0", "1.1.0"]);
+        const entry = path.join(versionsDir, "1.0.0", "t3");
+        yield* fs.copyFile("/bin/sleep", entry);
+        yield* fs.chmod(entry, 0o755);
+        const link = path.join(baseDir, "t3");
+        yield* fs.symlink(entry, link);
+        // Its argv names only the link, as with `t3 serve` run from PATH. Removing the link after
+        // spawning leaves the process's executable as the only reference.
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        yield* spawner.spawn(ChildProcess.make(link, ["30"]));
+        yield* fs.remove(link);
+
+        const removed = yield* prunePinnedRuntimes({ baseDir, keep: ["2.0.0"] }).pipe(
+          Effect.provideService(HostProcess.Platform, "linux"),
+          Effect.provideService(HostProcess.Environment, { T3CODE_INSTALL_BIN_DIR: baseDir }),
+          Effect.provide(ProcessRunner.layer),
+        );
+        assert.deepEqual(removed, ["1.1.0"]);
+      }),
   );
 });

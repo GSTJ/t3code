@@ -521,11 +521,7 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
     const unit = yield* fs.readFileString(status.unitPath).pipe(Effect.option);
     yield* prunePinnedRuntimes({
       baseDir: input.baseDir,
-      keep: [
-        currentVersion,
-        targetVersion,
-        ...(foreground?.serverVersion === undefined ? [] : [foreground.serverVersion]),
-      ],
+      keep: [currentVersion, targetVersion],
       references: Option.toArray(unit),
     });
   }
