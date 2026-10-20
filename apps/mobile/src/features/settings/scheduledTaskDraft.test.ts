@@ -37,7 +37,6 @@ describe("scheduleDraftForTask", () => {
       type: "webhook",
       signature: null,
       maxDeliveryAgeMinutes: null,
-      filters: [],
     });
   });
 
@@ -63,7 +62,7 @@ describe("scheduleDraftForTask", () => {
     const saved = scheduleFromDraft(
       scheduleDraftForTask({ schedule: { type: "webhook", signature } }),
     );
-    expect(saved).toEqual({ type: "webhook", signature, maxDeliveryAgeMinutes: null, filters: [] });
+    expect(saved).toEqual({ type: "webhook", signature, maxDeliveryAgeMinutes: null });
     expect(saved?.type === "webhook" && saved.signature && "secret" in saved.signature).toBe(false);
   });
 
@@ -73,7 +72,12 @@ describe("scheduleDraftForTask", () => {
       { path: "body.label.name", op: "in", value: ["needs review", "agent:fix"] },
     ] as const;
     const draft = scheduleDraftForTask({ schedule: { type: "webhook", signature: null, filters } });
-    expect(scheduleFromDraft(draft)).toMatchObject({ filters });
+    // Untouched rows are left out, so the server keeps whatever is stored now.
+    expect(scheduleFromDraft(draft)).not.toHaveProperty("filters");
+    expect(scheduleFromDraft({ ...draft, filters: [] })).toMatchObject({ filters: [] });
+    expect(scheduleFromDraft({ ...draft, filters: draft.filters.slice(1) })).toMatchObject({
+      filters: filters.slice(1),
+    });
     expect(
       scheduleFromDraft({ ...draft, filters: [{ path: "", op: "exists", value: "" }] }),
     ).toBeNull();

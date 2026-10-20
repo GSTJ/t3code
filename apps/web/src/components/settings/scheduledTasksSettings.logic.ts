@@ -13,6 +13,7 @@ import {
   parseMaxDeliveryAge,
   parseWebhookFilterDrafts,
   webhookFilterDrafts,
+  webhookFilterDraftsChanged,
   type WebhookFilterDraft,
 } from "@t3tools/client-runtime/scheduled-task-webhook";
 
@@ -83,6 +84,8 @@ export interface DraftState {
   readonly signatureSecret: string;
   readonly maxDeliveryAgeMinutes: string;
   readonly filters: ReadonlyArray<WebhookFilterDraft>;
+  /** The filter rows the form opened with. */
+  readonly savedFilters: ReadonlyArray<WebhookFilterDraft>;
 }
 
 export const WEBHOOK_SIGNATURE_DEFAULTS = {
@@ -109,8 +112,10 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
           }
         : null,
       maxDeliveryAgeMinutes,
-      // Always sent: the server keeps stored filters when the key is missing.
-      filters: parsedFilters.filters,
+      // Only edited filters are sent; the server keeps the stored ones otherwise.
+      ...(webhookFilterDraftsChanged(draft.savedFilters, draft.filters)
+        ? { filters: parsedFilters.filters }
+        : {}),
     };
   }
   if (draft.scheduleMode === "interval") {
@@ -127,6 +132,7 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
 
 export function taskToDraft(task: ScheduledTask): DraftState {
   const schedule = task.schedule;
+  const filters = webhookFilterDrafts(schedule.type === "webhook" ? schedule.filters : undefined);
   const weekdays =
     schedule.type === "fixed_time" && schedule.weekdays && schedule.weekdays.length > 0
       ? new Set(schedule.weekdays)
@@ -171,7 +177,8 @@ export function taskToDraft(task: ScheduledTask): DraftState {
       schedule.type === "webhook" && schedule.maxDeliveryAgeMinutes != null
         ? String(schedule.maxDeliveryAgeMinutes)
         : "",
-    filters: webhookFilterDrafts(schedule.type === "webhook" ? schedule.filters : undefined),
+    filters,
+    savedFilters: filters,
   };
 }
 

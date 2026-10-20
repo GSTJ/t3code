@@ -1019,7 +1019,10 @@ it.effect("checks filters after the signature and max age, and runs only matchin
       assert.deepInclude(matched, { _tag: "accepted", outcome: "accepted" });
       assert.include((yield* Queue.take(launches)).initialMessage?.text ?? "", "pull/45");
 
-      const deliveries = (yield* service.listWebhookDeliveries({ id: task.id })).deliveries;
+      const deliveries = (yield* service.listWebhookDeliveries({
+        id: task.id,
+        acceptAnyOutcome: true,
+      })).deliveries;
       const filtered = deliveries
         .filter((entry) => entry.outcome === "filtered")
         .map((entry) => [entry.signatureVerified, entry.error]);
@@ -1042,7 +1045,7 @@ const githubEvent = (event: string) => ({
   headers: { "content-type": "application/json", "x-github-event": event },
 });
 
-it.effect("filtered deliveries take no rate slot and cannot evict real deliveries", () =>
+it.effect("filtered deliveries take no run slot and log at most 10 rows a minute", () =>
   withService(({ service, launches }) =>
     Effect.gen(function* () {
       const { task } = yield* service.upsert(yield* pullRequestFilterInput());
@@ -1059,11 +1062,25 @@ it.effect("filtered deliveries take no rate slot and cannot evict real deliverie
         service.triggerWebhook(requestFor(task, githubEvent("push"))),
       );
 
-      const outcomes = (yield* service.listWebhookDeliveries({ id: task.id })).deliveries.map(
-        (delivery) => delivery.outcome,
-      );
-      assert.equal(outcomes.filter((outcome) => outcome === "filtered").length, 20);
+      const outcomes = (yield* service.listWebhookDeliveries({
+        id: task.id,
+        acceptAnyOutcome: true,
+      })).deliveries.map((delivery) => delivery.outcome);
+      // 75 filtered requests in one window: only the first 10 are written.
+      assert.equal(outcomes.filter((outcome) => outcome === "filtered").length, 10);
       assert.equal(outcomes.filter((outcome) => outcome === "accepted").length, 1);
+
+      // Later windows log again, and retention keeps the filtered rows at 20.
+      for (const _ of [1, 2]) {
+        yield* TestClock.adjust("61 seconds");
+        yield* Effect.forEach(Array.from({ length: 15 }), () =>
+          service.triggerWebhook(requestFor(task, githubEvent("push"))),
+        );
+      }
+      const later = (yield* service.listWebhookDeliveries({ id: task.id, acceptAnyOutcome: true }))
+        .deliveries;
+      assert.equal(later.filter((delivery) => delivery.outcome === "filtered").length, 20);
+      assert.equal(later.filter((delivery) => delivery.outcome === "accepted").length, 1);
     }),
   ),
 );
@@ -1113,6 +1130,30 @@ it.effect("a save without filters keeps the stored ones and an empty list clears
         yield* webhookTaskInput({ schedule: { type: "webhook", filters: [] } }),
       );
       assert.notProperty(cleared.task.schedule, "filters");
+    }),
+  ),
+);
+
+it.effect("leaves filtered rows out of the list for clients that only decode older outcomes", () =>
+  withService(({ service, launches }) =>
+    Effect.gen(function* () {
+      const { task } = yield* service.upsert(yield* pullRequestFilterInput());
+      yield* service.triggerWebhook(requestFor(task, githubEvent("push")));
+      yield* service.triggerWebhook(requestFor(task, githubEvent("pull_request")));
+      yield* Queue.take(launches);
+      const legacy = (yield* service.listWebhookDeliveries({ id: task.id })).deliveries;
+      assert.deepEqual(
+        legacy.map((delivery) => delivery.outcome),
+        ["accepted"],
+      );
+      const current = (yield* service.listWebhookDeliveries({
+        id: task.id,
+        acceptAnyOutcome: true,
+      })).deliveries;
+      assert.sameMembers(
+        current.map((delivery) => delivery.outcome),
+        ["accepted", "filtered"],
+      );
     }),
   ),
 );

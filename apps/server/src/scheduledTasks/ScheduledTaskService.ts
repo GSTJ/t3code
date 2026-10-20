@@ -61,6 +61,20 @@ export const WEBHOOK_ROUTE_PREFIX = "/api/hooks";
 const WEBHOOK_DELIVERY_RETENTION = 50;
 /** Kept apart from the rest, so a stream of filtered requests can't evict real deliveries. */
 const WEBHOOK_FILTERED_DELIVERY_RETENTION = 20;
+/** The outcomes clients decoded before outcomes became open-ended. */
+const LEGACY_DELIVERY_OUTCOMES: ReadonlySet<string> = new Set([
+  "accepted",
+  "dispatch_failed",
+  "rejected_signature",
+  "disabled",
+  "rate_limited",
+  "expired",
+]);
+/**
+ * Filtered requests take no run slot, so this bounds the log writes they
+ * cause instead; past it a filtered request is only counted in metrics.
+ */
+const WEBHOOK_FILTERED_LOG_PER_MINUTE = 10;
 const WEBHOOK_DELIVERY_LOG_BODY_LIMIT = 64 * 1024;
 const WEBHOOK_DELIVERY_LOG_PROMPT_LIMIT = 64 * 1024;
 const WEBHOOK_MAX_QUEUED_PER_TASK = 20;
@@ -391,6 +405,9 @@ export const layer = Layer.effect(
     // finish late release their own count, never a recreated task's.
     const webhookQueued = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
     const webhookRateWindows = yield* Ref.make<ReadonlyMap<ScheduledTaskId, RateWindow>>(new Map());
+    const webhookFilteredLogWindows = yield* Ref.make<
+      ReadonlyMap<ScheduledTaskId, ReadonlyArray<number>>
+    >(new Map());
     const activeRuns = yield* Ref.make<ReadonlySet<ScheduledTaskId>>(new Set());
     // Sliding(1) coalesces the dirty-signal: every notification triggers a
     // full list() re-emit anyway, so a slow subscriber only ever needs the
@@ -1125,6 +1142,11 @@ export const layer = Layer.effect(
             next.delete(id);
             return next;
           }),
+          Ref.update(webhookFilteredLogWindows, (windows) => {
+            const next = new Map(windows);
+            next.delete(id);
+            return next;
+          }),
           Ref.update(webhookPermits, (permits) => {
             const next = new Map(permits);
             next.delete(id);
@@ -1236,7 +1258,12 @@ export const layer = Layer.effect(
         WHERE task_id = ${input.id}
         ORDER BY received_at DESC, rowid DESC
       `.pipe(
-        Effect.map((rows) => ({ deliveries: rows.map(decodeDeliverySummary) })),
+        Effect.map((rows) => ({
+          deliveries: (input.acceptAnyOutcome === true
+            ? rows
+            : rows.filter((row) => LEGACY_DELIVERY_OUTCOMES.has(row.outcome))
+          ).map(decodeDeliverySummary),
+        })),
         Effect.mapError((cause) =>
           taskError("Could not list webhook deliveries.", { taskId: input.id, cause }),
         ),
@@ -1369,6 +1396,18 @@ export const layer = Layer.effect(
             "allowed",
             new Map(windows).set(id, { accepted: [...recent, nowMs], rejectedLogged: false }),
           ];
+        },
+      );
+
+    /** Sliding one-minute window of filtered requests written to the delivery log. */
+    const takeFilteredLogSlot = (id: ScheduledTaskId, nowMs: number) =>
+      Ref.modify(
+        webhookFilteredLogWindows,
+        (windows): readonly [boolean, ReadonlyMap<ScheduledTaskId, ReadonlyArray<number>>] => {
+          const recent = (windows.get(id) ?? []).filter((at) => nowMs - at < 60_000);
+          return recent.length >= WEBHOOK_FILTERED_LOG_PER_MINUTE
+            ? [false, windows]
+            : [true, new Map(windows).set(id, [...recent, nowMs])];
         },
       );
 
@@ -1558,10 +1597,12 @@ export const layer = Layer.effect(
           if (task.enabled && signatureVerified && !tooOld) {
             const failedFilter = findFailedWebhookFilter(schedule.filters ?? [], request);
             if (failedFilter !== null) {
-              yield* log("filtered", {
-                signatureVerified: signature !== null,
-                error: describeFailedWebhookFilter(failedFilter),
-              });
+              if (yield* takeFilteredLogSlot(task.id, DateTime.toEpochMillis(now))) {
+                yield* log("filtered", {
+                  signatureVerified: signature !== null,
+                  error: describeFailedWebhookFilter(failedFilter),
+                });
+              }
               yield* observe("filtered");
               return yield* releaseClaim({
                 _tag: "accepted" as const,

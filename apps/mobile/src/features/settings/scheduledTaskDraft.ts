@@ -13,6 +13,7 @@ import {
   parseMaxDeliveryAge,
   parseWebhookFilterDrafts,
   webhookFilterDrafts,
+  webhookFilterDraftsChanged,
   type WebhookFilterDraft,
 } from "@t3tools/client-runtime/scheduled-task-webhook";
 import {
@@ -56,6 +57,8 @@ export type ScheduleDraft = {
   readonly signature: ScheduledTaskWebhookSignature | null;
   readonly maxDeliveryAgeMinutes: string;
   readonly filters: ReadonlyArray<WebhookFilterDraft>;
+  /** The filter rows the form opened with. */
+  readonly savedFilters: ReadonlyArray<WebhookFilterDraft>;
 };
 
 export const DEFAULT_SCHEDULE: ScheduleDraft = {
@@ -66,6 +69,7 @@ export const DEFAULT_SCHEDULE: ScheduleDraft = {
   signature: null,
   maxDeliveryAgeMinutes: "",
   filters: [],
+  savedFilters: [],
 };
 
 export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): ScheduleDraft {
@@ -94,6 +98,7 @@ export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): Sch
             ? ""
             : String(task.schedule.maxDeliveryAgeMinutes),
         filters: webhookFilterDrafts(task.schedule.filters),
+        savedFilters: webhookFilterDrafts(task.schedule.filters),
       };
   }
 }
@@ -116,8 +121,10 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
               prefix: draft.signature.prefix,
             },
       maxDeliveryAgeMinutes,
-      // Always sent: the server keeps stored filters when the key is missing.
-      filters: parsedFilters.filters,
+      // Only edited filters are sent; the server keeps the stored ones otherwise.
+      ...(webhookFilterDraftsChanged(draft.savedFilters, draft.filters)
+        ? { filters: parsedFilters.filters }
+        : {}),
     };
   }
   if (draft.mode === "interval") {

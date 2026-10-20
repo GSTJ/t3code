@@ -4,6 +4,7 @@ import {
   parseMaxDeliveryAge,
   parseWebhookFilterDrafts,
   webhookFilterDrafts,
+  webhookFilterDraftsChanged,
 } from "./scheduledTaskWebhook.ts";
 
 describe("parseMaxDeliveryAge", () => {
@@ -48,5 +49,13 @@ describe("webhook filter drafts", () => {
       value: "",
     }));
     expect(parseWebhookFilterDrafts(seventeen)).toEqual({ error: "Use at most 16 filters." });
+  });
+
+  it("notices added, removed and edited rows but not an untouched list", () => {
+    const saved = webhookFilterDrafts([{ path: "body.action", op: "equals", value: "opened" }]);
+    expect(webhookFilterDraftsChanged(saved, [...saved])).toBe(false);
+    expect(webhookFilterDraftsChanged(saved, [])).toBe(true);
+    expect(webhookFilterDraftsChanged(saved, [{ ...saved[0]!, value: "closed" }])).toBe(true);
+    expect(webhookFilterDraftsChanged([], [])).toBe(false);
   });
 });

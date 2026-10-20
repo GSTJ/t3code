@@ -152,6 +152,7 @@ const EMPTY_DRAFT: DraftState = {
   signatureSecret: "",
   maxDeliveryAgeMinutes: "",
   filters: [],
+  savedFilters: [],
 };
 
 function WebhookFiltersField({
@@ -813,7 +814,10 @@ function WebhookDeliveriesDialog({
   readonly onClose: () => void;
 }) {
   const deliveriesQuery = useEnvironmentQuery(
-    serverEnvironment.scheduledTaskWebhookDeliveries({ environmentId, input: { id: task.id } }),
+    serverEnvironment.scheduledTaskWebhookDeliveries({
+      environmentId,
+      input: { id: task.id, acceptAnyOutcome: true },
+    }),
   );
   const [selectedId, setSelectedId] = useState<ScheduledTaskWebhookDeliverySummary["id"] | null>(
     null,

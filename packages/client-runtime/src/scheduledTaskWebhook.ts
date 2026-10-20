@@ -100,3 +100,23 @@ export function parseWebhookFilterDrafts(
   }
   return { filters };
 }
+
+/**
+ * Whether a form's filter rows differ from the ones it opened with. A save
+ * leaves `filters` out unless they did, so editing only the title can't
+ * overwrite filters another device changed in the meantime.
+ */
+export function webhookFilterDraftsChanged(
+  saved: ReadonlyArray<WebhookFilterDraft>,
+  current: ReadonlyArray<WebhookFilterDraft>,
+): boolean {
+  return (
+    saved.length !== current.length ||
+    saved.some(
+      (filter, index) =>
+        filter.path !== current[index]?.path ||
+        filter.op !== current[index]?.op ||
+        (filter.op !== "exists" && filter.value !== current[index]?.value),
+    )
+  );
+}

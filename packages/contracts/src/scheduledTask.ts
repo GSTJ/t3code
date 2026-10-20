@@ -331,6 +331,12 @@ export type ScheduledTaskWebhookDelivery = typeof ScheduledTaskWebhookDelivery.T
 
 export const ScheduledTaskListWebhookDeliveriesInput = Schema.Struct({
   id: ScheduledTaskId,
+  /**
+   * Sent by clients that decode any outcome. Shipped clients decode a closed
+   * list and fail on the whole response, so without it the server leaves out
+   * rows with outcomes they don't know.
+   */
+  acceptAnyOutcome: Schema.optional(Schema.Boolean),
 });
 export type ScheduledTaskListWebhookDeliveriesInput =
   typeof ScheduledTaskListWebhookDeliveriesInput.Type;

@@ -183,13 +183,11 @@ describe("webhook scheduled tasks", () => {
       type: "webhook",
       signature,
       maxDeliveryAgeMinutes: null,
-      filters: [],
     });
     expect(scheduleFromDraft({ ...draft, signatureSecret: " new " })).toEqual({
       type: "webhook",
       signature: { ...signature, secret: "new" },
       maxDeliveryAgeMinutes: null,
-      filters: [],
     });
   });
 
@@ -201,7 +199,6 @@ describe("webhook scheduled tasks", () => {
       type: "webhook",
       signature: null,
       maxDeliveryAgeMinutes: null,
-      filters: [],
     });
   });
 
@@ -222,7 +219,7 @@ describe("webhook scheduled tasks", () => {
     }
   });
 
-  it("round-trips filters and refuses to build a schedule with an invalid one", () => {
+  it("sends filters only when the form changed them", () => {
     const filters = [
       { path: "headers.x-github-event", op: "equals", value: "pull_request" },
       { path: "body.action", op: "in", value: ["opened", "reopened"] },
@@ -232,8 +229,12 @@ describe("webhook scheduled tasks", () => {
       schedule: { type: "webhook", signature, filters },
     });
     expect(draft.filters.map((filter) => filter.op)).toEqual(["equals", "in"]);
-    expect(scheduleFromDraft(draft)).toMatchObject({ filters });
-    // Sent even when empty, so removing every row clears the stored filters.
+    // A title-only save leaves the key out, so the server keeps whatever is stored now.
+    expect(scheduleFromDraft({ ...draft, title: "Renamed" })).not.toHaveProperty("filters");
+    expect(scheduleFromDraft({ ...draft, filters: draft.filters.slice(0, 1) })).toMatchObject({
+      filters: filters.slice(0, 1),
+    });
+    // Removing every row is a change, so it clears the stored filters.
     expect(scheduleFromDraft({ ...draft, filters: [] })).toMatchObject({ filters: [] });
     expect(
       scheduleFromDraft({ ...draft, filters: [{ path: "body.action", op: "in", value: " , " }] }),
