@@ -156,7 +156,9 @@ function useVoiceInputRuntime() {
       getTranscriber: () => {
         const preferences = registry.get(mobilePreferencesAtom);
         return getLocalVoiceTranscriber(
-          AsyncResult.isSuccess(preferences) ? preferences.value.voiceInputLocale : undefined,
+          AsyncResult.isSuccess(preferences)
+            ? (preferences.value.voiceInputLocale ?? undefined)
+            : undefined,
         );
       },
       requestPermission: async () => {

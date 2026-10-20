@@ -73,8 +73,8 @@ export interface Preferences {
   readonly composerEnterBehavior?: ComposerEnterBehavior;
   readonly followUpBehavior?: FollowUpBehavior;
   readonly microphones?: ReadonlyArray<MicrophoneEntry>;
-  /** An id from `DICTATION_LANGUAGES`. Writing undefined returns to the device language. */
-  readonly voiceInputLocale?: string | undefined;
+  /** An id from `DICTATION_LANGUAGES`, or null for the device language. */
+  readonly voiceInputLocale?: string | null;
   readonly projectGroupingEnabled?: boolean;
   readonly projectGroupingMode?: SidebarProjectGroupingMode;
   readonly planModeEnabled?: boolean;
@@ -148,7 +148,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     composerEnterBehavior?: ComposerEnterBehavior;
     followUpBehavior?: FollowUpBehavior;
     microphones?: ReadonlyArray<MicrophoneEntry>;
-    voiceInputLocale?: string;
+    voiceInputLocale?: string | null;
     projectGroupingEnabled?: boolean;
     projectGroupingMode?: SidebarProjectGroupingMode;
     planModeEnabled?: boolean;
@@ -244,7 +244,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
         : [];
     });
   }
-  if (isDictationLanguage(parsed.voiceInputLocale)) {
+  if (isDictationLanguage(parsed.voiceInputLocale) || parsed.voiceInputLocale === null) {
     preferences.voiceInputLocale = parsed.voiceInputLocale;
   }
   if (typeof parsed.projectGroupingEnabled === "boolean") {

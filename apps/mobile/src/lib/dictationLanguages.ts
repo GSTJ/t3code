@@ -30,7 +30,7 @@ export function isDictationLanguage(value: unknown): value is string {
   return DICTATION_LANGUAGES.some((language) => language.id === value);
 }
 
-export function dictationLanguageLabel(id: string | undefined): string {
+export function dictationLanguageLabel(id: string | null | undefined): string {
   return (
     DICTATION_LANGUAGES.find((language) => language.id === id)?.label ??
     DEVICE_DICTATION_LANGUAGE_LABEL

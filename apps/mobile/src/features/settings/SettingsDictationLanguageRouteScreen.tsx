@@ -9,7 +9,7 @@ import { mobilePreferencesAtom, updateMobilePreferencesAtom } from "../../state/
 import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
 
-const OPTIONS = [{ id: undefined, label: DEVICE_DICTATION_LANGUAGE_LABEL }, ...DICTATION_LANGUAGES];
+const OPTIONS = [{ id: null, label: DEVICE_DICTATION_LANGUAGE_LABEL }, ...DICTATION_LANGUAGES];
 
 export function SettingsDictationLanguageRouteScreen() {
   const insets = useSafeAreaInsets();
@@ -17,8 +17,8 @@ export function SettingsDictationLanguageRouteScreen() {
   const savePreferences = useAtomSet(updateMobilePreferencesAtom);
   const preferencesReady = AsyncResult.isSuccess(preferencesResult) && !preferencesResult.waiting;
   const selectedId = AsyncResult.isSuccess(preferencesResult)
-    ? preferencesResult.value.voiceInputLocale
-    : null;
+    ? (preferencesResult.value.voiceInputLocale ?? null)
+    : undefined;
 
   return (
     <View collapsable={false} className="flex-1 bg-sheet">
