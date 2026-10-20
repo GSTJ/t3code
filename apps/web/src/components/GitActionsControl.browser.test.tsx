@@ -6,12 +6,12 @@ import {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
-import { act, memo } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { memo } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
+import { act, cleanup, render as renderUi } from "../../test/render";
 
 type Branched = { readonly branch: string };
 type GitActionInput = { featureBranch?: boolean; threadId?: string; action: string };
@@ -168,20 +168,18 @@ import GitActionsControl from "./GitActionsControl";
 // ThreadDetailsPanel keeps this component mounted behind React.memo when threads change.
 const MemoGitActionsControl = memo(GitActionsControl);
 
-let root: Root;
 let container: HTMLDivElement;
 
 function render(thread = "thread", cwd = "/repo") {
-  return act(async () =>
-    root.render(
-      <MemoGitActionsControl
-        gitCwd={cwd}
-        activeThreadRef={{
-          environmentId: EnvironmentId.make("environment"),
-          threadId: ThreadId.make(thread),
-        }}
-      />,
-    ),
+  return renderUi(
+    <MemoGitActionsControl
+      gitCwd={cwd}
+      activeThreadRef={{
+        environmentId: EnvironmentId.make("environment"),
+        threadId: ThreadId.make(thread),
+      }}
+    />,
+    { container },
   );
 }
 
@@ -196,7 +194,7 @@ async function openCommitDialog() {
 }
 
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  container = document.body.appendChild(document.createElement("div"));
   state.scopes = new Set([AuthSourceControlWriteScope]);
   state.primaryScopes = new Set([AuthSourceControlWriteScope, AuthOrchestrationOperateScope]);
   state.shell = { branch: "main" };
@@ -218,15 +216,10 @@ beforeEach(() => {
       if (state.draft && input.branch) state.draft = { ...state.draft, branch: input.branch };
     },
   });
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
 });
 
 afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
+  await cleanup();
   await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
 });
 

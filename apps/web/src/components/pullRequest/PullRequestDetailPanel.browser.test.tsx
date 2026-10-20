@@ -10,8 +10,7 @@ import {
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
-import { act, type ComponentProps } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 import { DraftId, useComposerDraftStore } from "~/composerDraftStore";
@@ -19,6 +18,7 @@ import { selectActiveRightPanelSurface, useRightPanelStore } from "~/rightPanelS
 import { RightPanelSurfaceContent } from "../chat/RightPanelSurfaceContent";
 
 import "~/index.css";
+import { act, cleanup, render as renderUi } from "../../../test/render";
 
 const {
   newThread,
@@ -251,31 +251,28 @@ const shortcutContext = () => ({
   isDesktop: false,
 });
 
-const roots: Root[] = [];
-
-function render(props: Partial<ComponentProps<typeof PullRequestDetailPanel>> = {}) {
+function panelContainer() {
   const container = document.createElement("div");
   container.className = "flex h-[700px] w-[900px]";
-  document.body.append(container);
-  const root = createRoot(container);
-  roots.push(root);
-  return act(async () =>
-    root.render(
-      <PullRequestDetailPanel
-        environmentId={threadRef.environmentId}
-        reference={detail}
-        context="page"
-        shortcutsEnabled={false}
-        getShortcutContext={shortcutContext}
-        {...props}
-      />,
-    ),
+  return document.body.appendChild(container);
+}
+
+function render(props: Partial<ComponentProps<typeof PullRequestDetailPanel>> = {}) {
+  return renderUi(
+    <PullRequestDetailPanel
+      environmentId={threadRef.environmentId}
+      reference={detail}
+      context="page"
+      shortcutsEnabled={false}
+      getShortcutContext={shortcutContext}
+      {...props}
+    />,
+    { container: panelContainer() },
   );
 }
 
 beforeEach(() => {
   activityDetail = null;
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   currentDetail = detail;
   useComposerDraftStore.setState({ draftsByThreadKey: {} });
   useRightPanelStore.setState({ byThreadKey: {} });
@@ -294,9 +291,8 @@ beforeEach(() => {
   update.mockReset().mockResolvedValue({ _tag: "Success", value: undefined });
 });
 afterEach(async () => {
-  for (const root of roots.splice(0)) await act(async () => root.unmount());
+  await cleanup();
   document.body.replaceChildren();
-  vi.unstubAllGlobals();
 });
 
 const surface = { projectId: detail.projectId, repository: detail.repository, number: 1 };
@@ -567,59 +563,54 @@ it("restores the selected PR tab when switching threads and remounting the right
   useRightPanelStore.getState().openPullRequest(threadRef, surface);
   useRightPanelStore.getState().openPullRequest(otherThread, surface);
   const codeTab = () => page.getByRole("button", { name: "Expand all files", exact: true });
-  const container = document.createElement("div");
-  container.className = "flex h-[700px] w-[900px]";
-  document.body.append(container);
-  const root = createRoot(container);
-  roots.push(root);
+  const container = panelContainer();
   const show = (ref: ScopedThreadRef) => {
     const selected = selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, ref);
-    return act(async () => {
-      root.render(
-        <RightPanelSurfaceContent
-          surface={selected}
-          activeSurfaceId={selected?.id ?? null}
-          threadRef={ref}
-          environmentId={ref.environmentId}
-          visible
-          composerDraftTarget={ref}
-          keybindings={[]}
-          configuredPreviewUrls={[]}
-          workspaceMutationId={null}
-          getShortcutContext={shortcutContext}
-          onSendAnnotation={() => {}}
-          onCloseSurface={() => {}}
-          terminal={{
-            launchContext: null,
-            focusRequestId: 0,
-            keybindings: [],
-            onAddTerminalContext: () => {},
-            onSplitTerminal: () => {},
-            onSplitTerminalVertical: () => {},
-            onNewTerminal: () => {},
-            onActiveTerminalChange: () => {},
-            onCloseTerminal: () => {},
-          }}
-          pullRequest={{
-            capabilityKnown: true,
-            supported: true,
-            projectId: detail.projectId,
-            pullRequests: [],
-            linkedPullRequest: null,
-            branchPullRequest: null,
-            onBack: undefined,
-          }}
-          files={{
-            projectName: null,
-            workspaceRoot: undefined,
-            availableEditors: [],
-            pendingSurfaceIds: new Set(),
-            onOpenFile: () => {},
-            onPendingChange: () => {},
-          }}
-        />,
-      );
-    });
+    return renderUi(
+      <RightPanelSurfaceContent
+        surface={selected}
+        activeSurfaceId={selected?.id ?? null}
+        threadRef={ref}
+        environmentId={ref.environmentId}
+        visible
+        composerDraftTarget={ref}
+        keybindings={[]}
+        configuredPreviewUrls={[]}
+        workspaceMutationId={null}
+        getShortcutContext={shortcutContext}
+        onSendAnnotation={() => {}}
+        onCloseSurface={() => {}}
+        terminal={{
+          launchContext: null,
+          focusRequestId: 0,
+          keybindings: [],
+          onAddTerminalContext: () => {},
+          onSplitTerminal: () => {},
+          onSplitTerminalVertical: () => {},
+          onNewTerminal: () => {},
+          onActiveTerminalChange: () => {},
+          onCloseTerminal: () => {},
+        }}
+        pullRequest={{
+          capabilityKnown: true,
+          supported: true,
+          projectId: detail.projectId,
+          pullRequests: [],
+          linkedPullRequest: null,
+          branchPullRequest: null,
+          onBack: undefined,
+        }}
+        files={{
+          projectName: null,
+          workspaceRoot: undefined,
+          availableEditors: [],
+          pendingSurfaceIds: new Set(),
+          onOpenFile: () => {},
+          onPendingChange: () => {},
+        }}
+      />,
+      { container },
+    );
   };
 
   await show(threadRef);
@@ -640,7 +631,7 @@ it("restores the selected PR tab when switching threads and remounting the right
   await show(threadRef);
   await expect.element(codeTab()).toBeVisible();
 
-  await act(async () => root.render(null));
+  await renderUi(null, { container });
   useRightPanelStore.getState().openPullRequest(threadRef, { ...surface, url: detail.url });
   await show(threadRef);
   await expect.element(codeTab()).toBeVisible();

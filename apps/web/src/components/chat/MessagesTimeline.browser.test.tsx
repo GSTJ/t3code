@@ -14,9 +14,8 @@ import {
   decodeComposerContextFragment,
 } from "@t3tools/shared/composerContextClipboard";
 import type { LegendListRef } from "@legendapp/list/react";
-import { act, createRef, Profiler, useState, type ComponentProps, type ReactElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { createRef, Profiler, useState, type ComponentProps, type ReactElement } from "react";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
@@ -24,6 +23,7 @@ import "~/index.css";
 import { serverEnvironment } from "../../state/server";
 import { PullRequestLinkPreview } from "../pullRequest/PullRequestLinkPreview";
 import { Tooltip, TooltipPopup, TooltipScrollDismissArea, TooltipTrigger } from "../ui/tooltip";
+import { act, cleanup, render as renderUi, type RenderResult } from "../../../test/render";
 import { MessagesTimeline, remarkThoughtPreview } from "./MessagesTimeline";
 import { parseMarkdownWithMath } from "@t3tools/shared/markdownMath";
 import { readTimelinePosition } from "./timelineScrollAnchoring";
@@ -152,26 +152,20 @@ function longText(tail = "deep hidden detail only after expand") {
   ).join("\n");
 }
 
-const roots: Root[] = [];
+const screens: RenderResult[] = [];
 let container: HTMLDivElement;
 
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-});
-
 afterEach(async () => {
-  for (const root of roots.splice(0)) await act(async () => root.unmount());
+  screens.length = 0;
+  await cleanup();
   window.getSelection()?.removeAllRanges();
   document.body.replaceChildren();
-  vi.unstubAllGlobals();
 });
 
 async function renderElement(element: ReactElement) {
   container = document.body.appendChild(document.createElement("div"));
   container.style.cssText = "height: 1200px; width: 900px; display: flex; flex-direction: column;";
-  const root = createRoot(container);
-  roots.push(root);
-  await act(async () => root.render(element));
+  screens.push(await renderUi(element, { container }));
   return container;
 }
 
@@ -710,7 +704,7 @@ describe("MessagesTimeline messages", () => {
       message("Review this area", { createdBy: "agent", creationSource: "provider" }),
     ]);
     expect(text()).toContain("Sent by another agent");
-    await act(async () => roots.pop()!.unmount());
+    await screens.pop()!.unmount();
     await renderTimeline([message("Review this area")]);
     expect(text()).not.toContain("Sent by another agent");
   });
@@ -963,7 +957,7 @@ describe("MessagesTimeline attachments", () => {
     await renderTimeline([snapShot()]);
     expect(text()).toContain("screenshot.png");
     expect(text()).not.toContain("t3code — Tests");
-    await act(async () => roots.pop()!.unmount());
+    await screens.pop()!.unmount();
     await renderTimeline([snapShot("data:image/png;base64,iVBORw0KGgo=")]);
     expect(text()).toContain("Terminal");
     expect(text()).toContain("t3code — Tests");
@@ -991,26 +985,24 @@ describe("MessagesTimeline history and thread links", () => {
     expect(buttons(/^Worked/)).toHaveLength(1);
     expect(source()).toBeNull();
 
-    await act(async () =>
-      roots.at(-1)!.render(
-        <MessagesTimeline
-          {...props}
-          citationRequest={{
-            key: "open-citation",
-            citation: {
-              version: 1,
-              environmentId: ENVIRONMENT_ID,
-              threadId: ThreadId.make(`thread-${threadCount}`),
-              messageId: MessageId.make("citation-source"),
-              text: quote,
-              start: 0,
-              end: quote.length,
-              prefix: "",
-              suffix: "",
-            },
-          }}
-        />,
-      ),
+    await screens.at(-1)!.rerender(
+      <MessagesTimeline
+        {...props}
+        citationRequest={{
+          key: "open-citation",
+          citation: {
+            version: 1,
+            environmentId: ENVIRONMENT_ID,
+            threadId: ThreadId.make(`thread-${threadCount}`),
+            messageId: MessageId.make("citation-source"),
+            text: quote,
+            start: 0,
+            end: quote.length,
+            prefix: "",
+            suffix: "",
+          },
+        }}
+      />,
     );
 
     await vi.waitFor(() => {
@@ -1086,9 +1078,7 @@ describe("MessagesTimeline history and thread links", () => {
     });
 
     // Each row is much taller than LegendList's estimate.
-    await act(async () =>
-      roots.at(-1)!.render(<MessagesTimeline {...props} timelineEntries={entries} />),
-    );
+    await screens.at(-1)!.rerender(<MessagesTimeline {...props} timelineEntries={entries} />);
     const viewport = props.listRef.current!.getScrollableNode();
     await vi.waitFor(() => {
       expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
@@ -1099,18 +1089,16 @@ describe("MessagesTimeline history and thread links", () => {
     });
 
     const otherThreadKey = `${props.routeThreadKey}-other`;
-    await act(async () =>
-      roots
-        .at(-1)!
-        .render(
-          <MessagesTimeline
-            {...props}
-            routeThreadKey={otherThreadKey}
-            timelineEntries={entries}
-            liveFollowEnabled={false}
-          />,
-        ),
-    );
+    await screens
+      .at(-1)!
+      .rerender(
+        <MessagesTimeline
+          {...props}
+          routeThreadKey={otherThreadKey}
+          timelineEntries={entries}
+          liveFollowEnabled={false}
+        />,
+      );
     await vi.waitFor(() =>
       expect(
         viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
@@ -1125,9 +1113,7 @@ describe("MessagesTimeline history and thread links", () => {
       );
     });
 
-    await act(async () =>
-      roots.at(-1)!.render(<MessagesTimeline {...props} timelineEntries={entries} />),
-    );
+    await screens.at(-1)!.rerender(<MessagesTimeline {...props} timelineEntries={entries} />);
     await vi.waitFor(() => {
       expect(text()).toContain("Paragraph 11.59");
       expect(
@@ -1218,7 +1204,8 @@ describe("MessagesTimeline history and thread links", () => {
         }),
       }) as Entry;
     const show = async (entry: Entry, props: Partial<TimelineProps> = {}) => {
-      for (const root of roots.splice(0)) await act(async () => root.unmount());
+      screens.length = 0;
+      await cleanup();
       await renderElement(
         <RegistryProvider
           initialValues={[[serverEnvironment.providersValueAtom(ENVIRONMENT_ID), providers]]}
@@ -1494,7 +1481,7 @@ describe("MessagesTimeline scroll position", () => {
     });
 
     maxNestedCommits = 0;
-    await act(async () => roots.at(-1)!.render(timeline([...short, ...long])));
+    await screens.at(-1)!.rerender(timeline([...short, ...long]));
     await vi.waitFor(async () => {
       await act(async () => {
         viewport.scrollTop = 0;
@@ -1527,7 +1514,7 @@ describe("MessagesTimeline scroll position", () => {
     await userEvent.wheel(viewport, { delta: { y: -600 } });
     await vi.waitFor(() => expect(readTimelinePosition(props.routeThreadKey)?.atEnd).toBe(false));
     const offset = viewport.scrollTop;
-    await act(async () => roots.pop()!.unmount());
+    await screens.pop()!.unmount();
     expect(readTimelinePosition(props.routeThreadKey)).toMatchObject({
       atEnd: false,
       scrollOffset: offset,
@@ -1542,13 +1529,13 @@ describe("MessagesTimeline scroll position", () => {
       expect(Math.abs(reopenedViewport.scrollTop - offset)).toBeLessThanOrEqual(1),
     );
 
-    await act(async () => roots.at(-1)!.render(timeline(`${props.routeThreadKey}-other`)));
+    await screens.at(-1)!.rerender(timeline(`${props.routeThreadKey}-other`));
     await vi.waitFor(() =>
       expect(
         reopenedViewport.scrollHeight - reopenedViewport.clientHeight - reopenedViewport.scrollTop,
       ).toBeLessThanOrEqual(1),
     );
-    await act(async () => roots.at(-1)!.render(timeline(props.routeThreadKey)));
+    await screens.at(-1)!.rerender(timeline(props.routeThreadKey));
     await vi.waitFor(() =>
       expect(Math.abs(reopenedViewport.scrollTop - offset)).toBeLessThanOrEqual(1),
     );

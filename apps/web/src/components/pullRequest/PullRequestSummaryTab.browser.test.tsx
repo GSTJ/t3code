@@ -5,8 +5,6 @@ import {
   type PullRequestDetailView,
   type PullRequestComment,
 } from "@t3tools/contracts";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
@@ -15,6 +13,7 @@ vi.mock(import("~/state/use-atom-command"), async (original) => ({
   useAtomCommand: (() => vi.fn()) as never,
 }));
 
+import { act, cleanup, render as renderUi } from "../../../test/render";
 import { PullRequestSummaryTab } from "./PullRequestSummaryTab";
 
 const detail: PullRequestDetailView = {
@@ -69,35 +68,29 @@ const detail: PullRequestDetailView = {
   },
 };
 
-let root: Root;
 let container: HTMLDivElement;
+const newContainer = () => document.body.appendChild(document.createElement("div"));
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+  container = newContainer();
 });
 afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
+  await cleanup();
   localStorage.clear();
-  vi.unstubAllGlobals();
 });
 
 const render = (value = detail) =>
-  act(async () =>
-    root.render(
-      <PullRequestSummaryTab
-        scrollerRef={() => {}}
-        environmentId={EnvironmentId.make("environment")}
-        threadRef={null}
-        reference={value}
-        detail={value}
-        activityPending={false}
-        activityError={null}
-        onRefresh={() => {}}
-      />,
-    ),
+  renderUi(
+    <PullRequestSummaryTab
+      scrollerRef={() => {}}
+      environmentId={EnvironmentId.make("environment")}
+      threadRef={null}
+      reference={value}
+      detail={value}
+      activityPending={false}
+      activityError={null}
+      onRefresh={() => {}}
+    />,
+    { container },
   );
 
 function heading(title: string) {
@@ -217,8 +210,8 @@ it("hides bot and resolved comments until the filter shows them, and remembers t
     [...container.querySelectorAll("button")].some((button) => button.textContent === "Resolved"),
   ).toBe(true);
 
-  await act(async () => root.unmount());
-  root = createRoot(container);
+  await cleanup();
+  container = newContainer();
   await render({ ...value, url: `${value.url}0`, number: 10 });
   expect(commentTexts()).toContain("Bot report 11");
   await userEvent.click(filterButton());

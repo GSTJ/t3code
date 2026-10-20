@@ -1,24 +1,22 @@
-import { act, type ComponentProps } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import type { ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   compileResolvedKeybindingsConfig,
   DEFAULT_RESOLVED_KEYBINDINGS,
 } from "@t3tools/shared/keybindings";
 
+import { act, cleanup, render as renderUi } from "../../test/render";
 import { RightPanelTabs } from "./RightPanelTabs";
 
 vi.mock("~/hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "light" }) }));
 vi.mock("~/browser/browserDefaults", () => ({ useBrowserDefaults: () => ({ profiles: [] }) }));
 
-let root: Root;
 let container: HTMLDivElement;
 const addFiles = vi.fn();
 const noop = () => undefined;
 
 beforeEach(() => {
   vi.useFakeTimers();
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -33,67 +31,63 @@ beforeEach(() => {
   });
   vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
   addFiles.mockClear();
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+  container = document.body.appendChild(document.createElement("div"));
 });
 
 afterEach(async () => {
-  await act(() => root.unmount());
-  container.remove();
+  await cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
 async function renderPanel(overrides: Partial<ComponentProps<typeof RightPanelTabs>> = {}) {
-  await act(() =>
-    root.render(
-      <RightPanelTabs
-        mode="inline"
-        open
-        keybindings={DEFAULT_RESOLVED_KEYBINDINGS}
-        getShortcutContext={() => ({
-          terminalFocus: false,
-          terminalOpen: false,
-          previewFocus: false,
-          previewOpen: false,
-          isWeb: true,
-          isDesktop: false,
-        })}
-        surfaces={[]}
-        environmentId={null}
-        activeSurfaceId={null}
-        pendingSurfaceIds={new Set()}
-        previewSessions={{}}
-        desktopByTabId={{}}
-        terminalLabelsById={new Map()}
-        onActivate={noop}
-        onCloseSurface={noop}
-        onCloseOtherSurfaces={noop}
-        onCloseSurfacesToRight={noop}
-        onCloseAllSurfaces={noop}
-        onCopyFilePath={noop}
-        onAddBrowser={noop}
-        onAddBrowserInProfile={noop}
-        onAddTerminal={noop}
-        onAddDiff={noop}
-        onAddFiles={addFiles}
-        onAddPullRequest={noop}
-        onAddPullRequests={noop}
-        onAddDevice={noop}
-        browserAvailable={false}
-        terminalAvailable={false}
-        diffAvailable={false}
-        filesAvailable
-        pullRequestAvailable={false}
-        pullRequestsAvailable={false}
-        deviceAvailable={false}
-        {...overrides}
-      >
-        content
-      </RightPanelTabs>,
-    ),
+  await renderUi(
+    <RightPanelTabs
+      mode="inline"
+      open
+      keybindings={DEFAULT_RESOLVED_KEYBINDINGS}
+      getShortcutContext={() => ({
+        terminalFocus: false,
+        terminalOpen: false,
+        previewFocus: false,
+        previewOpen: false,
+        isWeb: true,
+        isDesktop: false,
+      })}
+      surfaces={[]}
+      environmentId={null}
+      activeSurfaceId={null}
+      pendingSurfaceIds={new Set()}
+      previewSessions={{}}
+      desktopByTabId={{}}
+      terminalLabelsById={new Map()}
+      onActivate={noop}
+      onCloseSurface={noop}
+      onCloseOtherSurfaces={noop}
+      onCloseSurfacesToRight={noop}
+      onCloseAllSurfaces={noop}
+      onCopyFilePath={noop}
+      onAddBrowser={noop}
+      onAddBrowserInProfile={noop}
+      onAddTerminal={noop}
+      onAddDiff={noop}
+      onAddFiles={addFiles}
+      onAddPullRequest={noop}
+      onAddPullRequests={noop}
+      onAddDevice={noop}
+      browserAvailable={false}
+      terminalAvailable={false}
+      diffAvailable={false}
+      filesAvailable
+      pullRequestAvailable={false}
+      pullRequestsAvailable={false}
+      deviceAvailable={false}
+      {...overrides}
+    >
+      content
+    </RightPanelTabs>,
+    { container },
   );
   await act(() => vi.advanceTimersByTimeAsync(0));
   await act(() => vi.advanceTimersToNextFrame());

@@ -9,11 +9,10 @@ import {
   type AuthSessionState,
 } from "@t3tools/contracts";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
 
 import "~/index.css";
+import { act, cleanup, render } from "../../../test/render";
 
 type SessionResult = AsyncResult.AsyncResult<AuthSessionState, Error>;
 type Project = { id: ProjectId; environmentId: EnvironmentId; workspaceRoot: string };
@@ -136,7 +135,6 @@ import { WelcomeWizard } from "./WelcomeWizard";
 const primaryId = EnvironmentId.make("primary");
 const remoteId = EnvironmentId.make("remote");
 const permissionMessage = "This connection cannot import projects or thread history.";
-const roots: Root[] = [];
 
 function session(scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState {
   return {
@@ -217,16 +215,10 @@ function projectCheckboxes() {
 
 async function mountImport(remote = false) {
   state.selectedEnvironment = remote ? "remote" : "primary";
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  roots.push(root);
-  await act(async () =>
-    root.render(
-      <RegistryContext.Provider value={appAtomRegistry}>
-        <WelcomeWizard localAvailable={!remote} onDone={state.onDone} />
-      </RegistryContext.Provider>,
-    ),
+  await render(
+    <RegistryContext.Provider value={appAtomRegistry}>
+      <WelcomeWizard localAvailable={!remote} onDone={state.onDone} />
+    </RegistryContext.Provider>,
   );
   await click("Continue");
   await click("Continue");
@@ -261,7 +253,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  for (const root of roots.splice(0)) await act(async () => root.unmount());
+  await cleanup();
   document.body.replaceChildren();
   state.sessions.clear();
 });

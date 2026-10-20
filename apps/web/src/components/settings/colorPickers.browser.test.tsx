@@ -1,8 +1,7 @@
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { userEvent } from "vite-plus/test/browser";
 
+import { act, cleanup, render, type RenderResult } from "../../../test/render";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
 import { ThemeColorField } from "./ThemeColorPicker";
 
@@ -11,24 +10,17 @@ const SATURATION = "Accent color saturation";
 const BRIGHTNESS = "Accent color brightness";
 const PLANE = "Accent color saturation and brightness";
 
-let root: Root;
-let container: HTMLDivElement;
+let screen: RenderResult;
 
 beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   // Synthetic pointer ids are not active pointers, so the browser would reject capture.
   vi.spyOn(HTMLElement.prototype, "setPointerCapture").mockImplementation(() => {});
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
 });
 
 afterEach(async () => {
-  await act(async () => root.unmount());
-  container.remove();
+  await cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
-  vi.unstubAllGlobals();
 });
 
 function byLabel<T extends HTMLElement = HTMLElement>(label: string) {
@@ -77,15 +69,13 @@ const nextFrame = () =>
 
 async function renderAccent(value: string | undefined, commitDelayMs?: number) {
   const onCommit = vi.fn();
-  await act(async () =>
-    root.render(
-      <ProviderAccentColorPicker
-        displayName="Codex"
-        value={value}
-        onCommit={onCommit}
-        {...(commitDelayMs === undefined ? {} : { commitDelayMs })}
-      />,
-    ),
+  screen = await render(
+    <ProviderAccentColorPicker
+      displayName="Codex"
+      value={value}
+      onCommit={onCommit}
+      {...(commitDelayMs === undefined ? {} : { commitDelayMs })}
+    />,
   );
   await open(`${value ? "Change" : "Add"} accent color for Codex`);
   return onCommit;
@@ -93,11 +83,15 @@ async function renderAccent(value: string | undefined, commitDelayMs?: number) {
 
 async function renderThemeField(value: string) {
   const onChange = vi.fn();
-  const render = (current: string) =>
-    root.render(<ThemeColorField role="accent" value={current} onChange={onChange} />);
-  await act(async () => render(value));
+  const container = document.body.appendChild(document.createElement("div"));
+  const renderField = async (current: string) => {
+    screen = await render(<ThemeColorField role="accent" value={current} onChange={onChange} />, {
+      container,
+    });
+  };
+  await renderField(value);
   await open("Choose Accent color color");
-  return { onChange, echo: (next: string) => act(async () => render(next)) };
+  return { onChange, echo: renderField };
 }
 
 describe("provider accent color picker", () => {
@@ -184,11 +178,10 @@ describe("provider accent color picker", () => {
     expect(onCommit).toHaveBeenCalledExactlyOnceWith("#ff5500");
 
     await press(HUE, "ArrowRight", true);
-    await act(async () => root.unmount());
+    await screen.unmount();
     expect(onCommit).toHaveBeenLastCalledWith("#ff8000");
     await act(async () => vi.advanceTimersByTime(250));
     expect(onCommit).toHaveBeenCalledTimes(2);
-    root = createRoot(container);
   });
 });
 
@@ -240,10 +233,9 @@ describe("theme color field", () => {
 
     await act(async () => {
       pointer(PLANE, "pointerdown", 1.5, 1.5);
-      root.unmount();
+      await screen.unmount();
     });
     expect(onChange).toHaveBeenLastCalledWith("accent", "#00000080");
-    root = createRoot(container);
   });
 
   it("keeps the selected hue when a grey color is echoed back from theme settings", async () => {

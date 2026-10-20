@@ -7,12 +7,12 @@ import {
   FILL_PREVIEW_VIEWPORT,
   ThreadId,
 } from "@t3tools/contracts";
-import { act, Profiler, type ComponentProps, type ReactNode } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { Profiler, type ComponentProps, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
+import { act, cleanup, render as renderUi } from "../../../test/render";
 
 import type { PreviewableServer } from "./useDiscoveredLocalServers";
 
@@ -170,11 +170,10 @@ const TEST_THREAD_REF = {
 } as const;
 const TEST_RUNTIME_TAB_ID = previewRuntimeTabId(TEST_THREAD_REF, null, "tab-1");
 
-const roots: Root[] = [];
-let root: Root;
+let container: HTMLDivElement;
 
 async function render(node: ReactNode) {
-  await act(async () => root.render(node));
+  await renderUi(node, { container });
 }
 
 function view(onSendAnnotation?: ComponentProps<typeof PreviewView>["onSendAnnotation"]) {
@@ -216,7 +215,6 @@ function hasCursor() {
 
 describe("PreviewView", () => {
   beforeEach(() => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.clearAllMocks();
     mocks.readEnvironmentScope.mockReset().mockReturnValue(true);
     mocks.setAnnotationSendEnabled.mockReset().mockResolvedValue(undefined);
@@ -235,14 +233,11 @@ describe("PreviewView", () => {
     });
     usePreviewMiniPlayerStore.setState({ byThreadKey: {} });
     useBrowserPointerStore.setState({ byTabId: {} });
-    const container = document.createElement("div");
-    document.body.append(container);
-    root = createRoot(container);
-    roots.push(root);
+    container = document.body.appendChild(document.createElement("div"));
   });
 
   afterEach(async () => {
-    for (const each of roots.splice(0)) await act(async () => each.unmount());
+    await cleanup();
     document.body.replaceChildren();
     vi.useRealTimers();
     vi.unstubAllGlobals();
