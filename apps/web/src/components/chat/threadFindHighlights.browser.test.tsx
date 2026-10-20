@@ -158,7 +158,6 @@ describe("find highlight caching", () => {
       />,
     );
     await act(nextFrame);
-    await act(nextFrame);
     expect(activeRanges()[0]?.toString()).toBe("COD4");
   });
 

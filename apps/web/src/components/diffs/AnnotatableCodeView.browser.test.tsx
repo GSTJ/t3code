@@ -122,16 +122,18 @@ function typeComment(text: string) {
   });
 }
 
-function setup() {
-  useComposerDraftStore.setState(useComposerDraftStore.getInitialState(), true);
+function setup(): Disposable {
+  const reset = () => useComposerDraftStore.setState(useComposerDraftStore.getInitialState(), true);
+  reset();
   container = document.createElement("div");
+  return { [Symbol.dispose]: reset };
 }
 
 describe("diff comment drafts", () => {
   it.each(["removed file", "replaced rename"] as const)(
     "allows a fresh comment after a %s loses its draft",
     async (scenario) => {
-      setup();
+      using _drafts = setup();
       const original =
         scenario === "removed file"
           ? file("a.ts")
@@ -172,7 +174,7 @@ describe("diff comment drafts", () => {
   );
 
   it("keeps the text and selected line through refresh and a provisional lazy patch", async () => {
-    setup();
+    using _drafts = setup();
     const original = file("shared.ts", 1, "rename-pure", "old.ts");
     await using screen = await render(view([original]), { container });
     await click("Comment on shared.ts");
