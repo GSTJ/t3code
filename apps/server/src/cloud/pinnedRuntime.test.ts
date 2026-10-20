@@ -10,6 +10,8 @@ import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
+import * as HostProcess from "@t3tools/shared/HostProcess";
+
 import * as ProcessRunner from "../processRunner.ts";
 import {
   ensurePinnedRuntimeInstalled,
@@ -17,7 +19,9 @@ import {
   pinnedRuntimePaths,
   PinnedRuntimeInstallError,
   type PinnedRuntimeProgress,
+  prunePinnedRuntimes,
 } from "./pinnedRuntime.ts";
+import { SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
 
 const version = "1.2.3";
 const archiveName = `t3-${version}-linux-x64.tar.gz`;
@@ -550,6 +554,98 @@ it.layer(NodeServices.layer)("ensurePinnedRuntimeInstalled", (it) => {
       yield* Fiber.interrupt(install);
       const versionsDir = path.join(baseDir, "runtime", "versions");
       assert.deepEqual(yield* fs.readDirectory(versionsDir), []);
+    }),
+  );
+});
+
+it.layer(NodeServices.layer)("prunePinnedRuntimes", (it) => {
+  const psRunner = (stdout: string) =>
+    ProcessRunner.ProcessRunner.of({
+      run: () =>
+        Effect.succeed({
+          stdout,
+          stderr: "",
+          code: ChildProcessSpawner.ExitCode(0),
+          timedOut: false,
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          stdoutInvalidUtf8: false,
+          stderrInvalidUtf8: false,
+        }),
+    });
+
+  it.effect("removes only completed runtimes nothing references", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-prune-" });
+      const binDir = path.join(baseDir, "bin");
+      const versionsDir = path.join(baseDir, "runtime", "versions");
+      const install = (version: string, complete = true) =>
+        Effect.gen(function* () {
+          const directory = path.join(versionsDir, version);
+          yield* fs.makeDirectory(directory, { recursive: true });
+          yield* fs.writeFileString(path.join(directory, "t3"), "");
+          if (complete) {
+            yield* fs.writeFileString(path.join(directory, ".install-complete"), `${version}\n`);
+          }
+        });
+      for (const version of ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0"]) {
+        yield* install(version);
+      }
+      yield* install("1.0.1", false);
+      yield* install(".staging-abc", false);
+      yield* install(".pruned-0.9.0");
+      yield* fs.makeDirectory(binDir);
+      yield* fs.symlink(path.join(versionsDir, "1.2.0", "t3"), path.join(binDir, "t3"));
+      yield* fs.writeFileString(
+        path.join(baseDir, "runtime", "service-state.json"),
+        JSON.stringify({
+          protocol: SERVICE_LAUNCHER_PROTOCOL,
+          activeVersion: "1.5.0",
+          update: { id: "u", fromVersion: "1.4.0", targetVersion: "1.5.0", status: "committed" },
+        }),
+      );
+
+      const removed = yield* prunePinnedRuntimes({ baseDir, keep: ["1.5.0"] }).pipe(
+        Effect.provideService(
+          ProcessRunner.ProcessRunner,
+          psRunner(`${path.join(versionsDir, "1.3.0", "t3")} __service-launcher\n`),
+        ),
+        Effect.provideService(HostProcess.Platform, "linux"),
+        Effect.provideService(HostProcess.Environment, { T3CODE_INSTALL_BIN_DIR: binDir }),
+      );
+
+      // 1.2.0 is the shell launcher, 1.3.0 a running launcher, 1.4.0 the rollback, 1.5.0 active,
+      // 1.6.0 newer than anything kept; 1.0.1 never completed.
+      assert.deepEqual(removed, ["1.0.0", "1.1.0"]);
+      assert.deepEqual((yield* fs.readDirectory(versionsDir)).toSorted(), [
+        ".staging-abc",
+        "1.0.1",
+        "1.2.0",
+        "1.3.0",
+        "1.4.0",
+        "1.5.0",
+        "1.6.0",
+      ]);
+    }),
+  );
+
+  it.effect("keeps everything when the process list is unavailable", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-pinned-prune-ps-" });
+      const versionDir = path.join(baseDir, "runtime", "versions", "1.0.0");
+      yield* fs.makeDirectory(versionDir, { recursive: true });
+      yield* fs.writeFileString(path.join(versionDir, ".install-complete"), "1.0.0\n");
+
+      const removed = yield* prunePinnedRuntimes({ baseDir, keep: ["2.0.0"] }).pipe(
+        Effect.provideService(ProcessRunner.ProcessRunner, psRunner("")),
+        Effect.provideService(HostProcess.Environment, { T3CODE_INSTALL_BIN_DIR: baseDir }),
+      );
+      assert.deepEqual(removed, []);
+      assert.isTrue(yield* fs.exists(versionDir));
     }),
   );
 });

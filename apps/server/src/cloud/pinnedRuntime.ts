@@ -19,7 +19,15 @@ import {
   parseChecksums,
 } from "@t3tools/shared/cliRelease";
 
+import * as HostProcess from "@t3tools/shared/HostProcess";
+
 import * as ProcessRunner from "../processRunner.ts";
+import {
+  compareExactServiceVersions,
+  isExactServiceVersion,
+  parseServiceState,
+  SERVICE_STATE_FILE,
+} from "./serviceProtocol.ts";
 
 const PINNED_RUNTIME_DIR = "runtime";
 const PINNED_RUNTIME_INSTALL_TIMEOUT = Duration.minutes(10);
@@ -364,3 +372,139 @@ const installPinnedRuntime = Effect.fn("cloud.pinned_runtime.ensure_installed")(
 
 export const ensurePinnedRuntimeInstalled = (input: PinnedRuntimeInstallInput) =>
   pinnedRuntimeInstallLock.withPermit(installPinnedRuntime(input));
+
+const PINNED_RUNTIME_PRUNED_PREFIX = ".pruned-";
+
+/** Versions the `t3` shims written by the install scripts and `t3 update` point at. */
+const shellLauncherVersions = Effect.fn("cloud.pinned_runtime.shell_launcher_versions")(function* (
+  versionsDir: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const platform = yield* HostProcess.Platform;
+  const environment = yield* HostProcess.Environment;
+  const home = yield* HostProcess.HomeDirectory;
+  const directories = [
+    environment["T3CODE_INSTALL_BIN_DIR"] || path.join(home, ".local", "bin"),
+    ...(environment["PATH"] ?? environment["Path"] ?? "").split(platform === "win32" ? ";" : ":"),
+  ].filter((directory) => directory.trim().length > 0);
+  const versions = new Set<string>();
+  for (const directory of directories) {
+    const target =
+      platform === "win32"
+        ? yield* fs.readFileString(path.join(directory, "t3.cmd")).pipe(
+            Effect.map((contents) => /^"([^"]+)"/m.exec(contents)?.[1]),
+            Effect.orElseSucceed(() => undefined),
+          )
+        : yield* fs.readLink(path.join(directory, "t3")).pipe(
+            Effect.map((link) => path.resolve(directory, link)),
+            Effect.orElseSucceed(() => undefined),
+          );
+    if (target === undefined) continue;
+    const relative = path.relative(versionsDir, path.resolve(target));
+    if (relative.startsWith("..") || path.isAbsolute(relative)) continue;
+    const version = relative.split(path.sep)[0];
+    if (version) versions.add(version);
+  }
+  return versions;
+});
+
+const runningCommandLines = Effect.fn("cloud.pinned_runtime.running_command_lines")(function* () {
+  const runner = yield* ProcessRunner.ProcessRunner;
+  const platform = yield* HostProcess.Platform;
+  const result = yield* runner.run({
+    ...(platform === "win32"
+      ? {
+          command: "powershell.exe",
+          args: [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-CimInstance Win32_Process | Select-Object -ExpandProperty CommandLine",
+          ],
+        }
+      : { command: "ps", args: ["-ax", "-o", "command="] }),
+    timeout: Duration.seconds(10),
+    maxOutputBytes: 16 * 1024 * 1024,
+  });
+  return result.code === 0 && result.stdout.length > 0 ? Option.some(result.stdout) : Option.none();
+});
+
+/**
+ * Every update publishes a new immutable runtime, so without pruning they pile up. Removes
+ * completed runtimes nothing can start again and keeps: the caller's versions, everything the
+ * service state references (active, rollback, pending), the `t3` shell launcher's target, any
+ * runtime a running process uses (an older service launcher keeps serving newer children), and
+ * anything newer than the caller's versions, which another process may be installing. Staging
+ * directories, symlinks, and unexpected entries are never touched.
+ */
+export const prunePinnedRuntimes = Effect.fn("cloud.pinned_runtime.prune")(function* (input: {
+  readonly baseDir: string;
+  readonly keep: ReadonlyArray<string>;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const versionsDir = pinnedRuntimeVersionsDir(path, input.baseDir);
+  const entries = yield* fs.readDirectory(versionsDir).pipe(Effect.orElseSucceed(() => []));
+
+  // An interrupted prune has already renamed its runtime out of the way.
+  for (const entry of entries) {
+    if (entry.startsWith(PINNED_RUNTIME_PRUNED_PREFIX)) {
+      yield* fs.remove(path.join(versionsDir, entry), { recursive: true, force: true });
+    }
+  }
+
+  const completed: Array<string> = [];
+  for (const version of entries) {
+    if (!isExactServiceVersion(version)) continue;
+    const versionDir = path.join(versionsDir, version);
+    const isLink = yield* fs.readLink(versionDir).pipe(Effect.isSuccess);
+    const sentinel = yield* fs
+      .readFileString(path.join(versionDir, ".install-complete"))
+      .pipe(Effect.option);
+    if (!isLink && Option.isSome(sentinel) && sentinel.value.trim() === version) {
+      completed.push(version);
+    }
+  }
+  if (completed.length === 0) return [];
+
+  const keep = new Set(input.keep);
+  const stateText = yield* fs
+    .readFileString(path.join(input.baseDir, "runtime", SERVICE_STATE_FILE))
+    .pipe(Effect.option);
+  if (Option.isSome(stateText)) {
+    const state = parseServiceState(stateText.value);
+    // State this version cannot read may reference runtimes in ways it does not know.
+    if (state === undefined) return [];
+    keep.add(state.activeVersion);
+    if (state.update !== undefined) {
+      keep.add(state.update.fromVersion);
+      keep.add(state.update.targetVersion);
+    }
+  }
+  for (const version of yield* shellLauncherVersions(versionsDir)) keep.add(version);
+  const commandLines = yield* runningCommandLines();
+  // Without a process list, a runtime in use would look unused.
+  if (Option.isNone(commandLines)) return [];
+
+  const removable = completed.filter(
+    (version) =>
+      !keep.has(version) &&
+      input.keep.every((kept) => compareExactServiceVersions(version, kept) < 0) &&
+      !commandLines.value.includes(path.join(versionsDir, version) + path.sep),
+  );
+  const removed: Array<string> = [];
+  for (const version of removable) {
+    const pruned = path.join(versionsDir, `${PINNED_RUNTIME_PRUNED_PREFIX}${version}`);
+    // Renaming first means an interrupted removal never leaves a partial tree that still carries
+    // its sentinel and would pass for a complete install.
+    yield* fs.rename(path.join(versionsDir, version), pruned).pipe(
+      Effect.andThen(fs.remove(pruned, { recursive: true, force: true })),
+      Effect.andThen(Effect.sync(() => removed.push(version))),
+      Effect.catch((cause) =>
+        Effect.logWarning("Could not remove an unused t3 runtime.", { version, cause }),
+      ),
+    );
+  }
+  return removed;
+}, pinnedRuntimeInstallLock.withPermit);
