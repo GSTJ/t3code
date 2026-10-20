@@ -74,7 +74,10 @@ import { useOpenThreadPullRequests } from "../threads/use-open-thread-pull-reque
 import { RenderErrorBoundary, RenderFailureView } from "../../components/RenderErrorBoundary";
 import { WORKSPACE_PANE_TIMING } from "./workspace-pane-animation";
 import { WorkspaceInspectorPane } from "./workspace-inspector-pane";
-import { WorkspaceContentWidthContext } from "./workspace-content-width";
+import {
+  WorkspaceContentWidthContext,
+  WorkspaceSettledContentWidthContext,
+} from "./workspace-content-width";
 import {
   NativeWorkspaceModeContext,
   NativeWorkspaceInspectorContext,
@@ -832,7 +835,13 @@ function AdaptiveWorkspaceLayoutContent(
                 <WorkspaceContentWidthContext
                   value={layout.usesSplitView ? renderedContentWidth : null}
                 >
-                  {props.children}
+                  <WorkspaceSettledContentWidthContext
+                    value={
+                      Platform.OS === "android" && layout.usesSplitView ? contentSettledWidth : null
+                    }
+                  >
+                    {props.children}
+                  </WorkspaceSettledContentWidthContext>
                 </WorkspaceContentWidthContext>
               </View>
             </View>
