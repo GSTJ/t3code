@@ -1085,8 +1085,8 @@ function ScheduledTaskEditorForm({
     const schedule = scheduleFromDraft(draft);
     if (schedule === null) {
       reportFailure(
-        "Invalid webhook limits",
-        `Age must be whole minutes from 1 to ${MAX_WEBHOOK_DELIVERY_AGE_MINUTES}; coalesce window must be whole seconds from 10 to 3600. Leave either blank for its default.`,
+        "Invalid webhook settings",
+        `Age must be whole minutes from 1 to ${MAX_WEBHOOK_DELIVERY_AGE_MINUTES}; coalesce window must be whole seconds from 10 to 3600. Leave either blank for its default. Each dedupe key must contain a valid request placeholder.`,
       );
       return;
     }

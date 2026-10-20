@@ -83,9 +83,18 @@ const WebhookMaxDeliveryAgeMinutes = Schema.Int.check(
     "Skip requests the relay held longer than this many minutes while the environment was offline. Null runs every request.",
 });
 
+export function isWebhookDedupeTemplate(template: string): boolean {
+  const placeholders = /\{\{\s*(?:(?:body|headers|query)(?:\.[^{}\s]+)*|request)\s*\}\}/g;
+  const matches = [...template.matchAll(placeholders)];
+  const remainder = template.replace(placeholders, "");
+  return matches.length > 0 && !remainder.includes("{{") && !remainder.includes("}}");
+}
+
+const WebhookDedupeTemplate = Schema.String.check(Schema.makeFilter(isWebhookDedupeTemplate));
+
 const ScheduledTaskWebhookDedupe = Schema.Struct({
-  replayKey: Schema.optional(Schema.String),
-  coalesceKey: Schema.optional(Schema.String),
+  replayKey: Schema.optional(WebhookDedupeTemplate),
+  coalesceKey: Schema.optional(WebhookDedupeTemplate),
   coalesceWindowSeconds: Schema.optional(
     Schema.Int.check(Schema.isBetween({ minimum: 10, maximum: 3600 })),
   ),

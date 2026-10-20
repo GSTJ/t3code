@@ -114,8 +114,14 @@ To suppress repeated deliveries, set a **Replay key** template, such as
 To combine a burst, set a **Coalesce key**, such as `{{body.id}}`, and a window
 of 10–3600 seconds (120 by default). One run uses the latest body, headers,
 and query when the window from the first delivery closes; later requests
-do not extend it. Pending windows survive a server restart. An empty key
-render skips that key's rule. Clear the templates to turn dedupe off.
+do not extend it. Pending windows survive a server restart. Keys must contain
+request placeholders; if any placeholder is missing, or the render is empty,
+that key's rule is skipped. Clear the templates to turn dedupe off.
+
+Duplicate log entries and coalesced updates share a limit of 10 per task per
+minute. Additional duplicates are still accepted without a log entry. Additional
+coalesced updates receive HTTP 429 so the sender can retry; an accepted update
+always replaces the persisted payload.
 
 On desktop and web, pick **Deliveries** from a task's menu to see recent
 requests and the prompt each one produced.

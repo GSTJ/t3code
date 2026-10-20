@@ -627,6 +627,13 @@ function TaskForm({
       );
       return;
     }
+    if (draft.schedule.mode === "webhook" && schedule === null) {
+      Dialog.alert(
+        "Invalid webhook settings",
+        "Each dedupe key must contain a valid request placeholder. The coalesce window must be whole seconds from 10 to 3600, or blank.",
+      );
+      return;
+    }
     if (
       !draft.title.trim() ||
       !draft.prompt.trim() ||

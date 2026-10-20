@@ -340,3 +340,9 @@ describe("scheduled task model defaults", () => {
     ).toBeNull();
   });
 });
+
+it("rejects dedupe templates without a request placeholder", () => {
+  const draft = taskToDraft({ ...legacyTask, schedule: { type: "webhook", signature: null } });
+  expect(scheduleFromDraft({ ...draft, replayKey: "literal" })).toBeNull();
+  expect(scheduleFromDraft({ ...draft, coalesceKey: "{{body.bad" })).toBeNull();
+});

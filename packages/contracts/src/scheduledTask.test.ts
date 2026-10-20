@@ -69,3 +69,10 @@ describe("ScheduledTaskUpsertSchedule", () => {
     ).toThrow();
   });
 });
+
+it.each(["literal", "{{body.bad", "{{unknown.field}}"])(
+  "rejects invalid dedupe template %s",
+  (replayKey) => {
+    expect(() => decodeUpsertSchedule({ type: "webhook", dedupe: { replayKey } })).toThrow();
+  },
+);

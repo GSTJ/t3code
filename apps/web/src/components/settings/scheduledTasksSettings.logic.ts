@@ -1,3 +1,4 @@
+import { isWebhookDedupeTemplate } from "@t3tools/contracts";
 import {
   EnvironmentId,
   type ProjectId,
@@ -92,6 +93,8 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
   if (draft.scheduleMode === "webhook") {
     const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
     if (maxDeliveryAgeMinutes === undefined) return null;
+    if ([draft.replayKey, draft.coalesceKey].some((key) => key && !isWebhookDedupeTemplate(key)))
+      return null;
     const coalesceWindowSeconds = draft.coalesceWindowSeconds?.trim()
       ? Number(draft.coalesceWindowSeconds)
       : undefined;

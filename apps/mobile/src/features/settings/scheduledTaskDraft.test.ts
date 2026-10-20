@@ -370,3 +370,12 @@ describe("scheduled task model defaults", () => {
     ).toBeNull();
   });
 });
+
+it("rejects dedupe keys without valid request placeholders", () => {
+  expect(
+    scheduleFromDraft({ ...DEFAULT_SCHEDULE, mode: "webhook", replayKey: "literal" }),
+  ).toBeNull();
+  expect(
+    scheduleFromDraft({ ...DEFAULT_SCHEDULE, mode: "webhook", coalesceKey: "{{body.bad" }),
+  ).toBeNull();
+});
