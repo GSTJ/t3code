@@ -31,7 +31,6 @@ describe("matchesWebhookFilter", () => {
     assert.isTrue(matches({ path: "body.action", op: "notEquals", value: "closed" }));
     assert.isFalse(matches({ path: "body.action", op: "notEquals", value: "labeled" }));
     assert.isTrue(matches({ path: "body.action", op: "in", value: ["opened", "labeled"] }));
-    assert.isFalse(matches({ path: "body.action", op: "in", value: [] }));
     assert.isTrue(matches({ path: "body.label.name", op: "startsWith", value: "agent:" }));
     assert.isFalse(matches({ path: "body.label.name", op: "startsWith", value: "review" }));
   });
@@ -41,14 +40,6 @@ describe("matchesWebhookFilter", () => {
     assert.isTrue(matches({ path: "query.source", op: "equals", value: "github" }));
   });
 
-  it("leaves regular expressions unanchored", () => {
-    assert.isTrue(matches({ path: "body.label.name", op: "matches", value: "review" }));
-    assert.isTrue(
-      matches({ path: "body.label.name", op: "matches", value: "^agent:(review|fix)$" }),
-    );
-    assert.isFalse(matches({ path: "body.label.name", op: "matches", value: "^review" }));
-  });
-
   it("lets objects and arrays satisfy only exists", () => {
     for (const path of ["body.label", "body.labels"]) {
       assert.isTrue(matches({ path, op: "exists" }));
@@ -56,7 +47,6 @@ describe("matchesWebhookFilter", () => {
       assert.isFalse(matches({ path, op: "notEquals", value: "anything" }));
       assert.isFalse(matches({ path, op: "in", value: ["bug"] }));
       assert.isFalse(matches({ path, op: "startsWith", value: "" }));
-      assert.isFalse(matches({ path, op: "matches", value: "" }));
     }
   });
 
@@ -69,7 +59,7 @@ describe("matchesWebhookFilter", () => {
     ]) {
       assert.isFalse(matches({ path, op: "exists" }));
       assert.isFalse(matches({ path, op: "notEquals", value: "x" }));
-      assert.isFalse(matchesWebhookFilter({ path, op: "matches", value: "" }, undefined));
+      assert.isFalse(matchesWebhookFilter({ path, op: "startsWith", value: "" }, undefined));
     }
   });
 });

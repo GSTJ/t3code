@@ -115,8 +115,8 @@ like a placeholder, without the braces, such as `headers.x-github-event` equals
 when every filter matches; other requests are answered normally, logged as
 **Filtered** with the first filter that failed, and start nothing. Values
 compare as text, and a value that is an object or a list only passes
-**exists**. **Matches regex** is unanchored, so add `^` and `$` to match the
-whole value.
+**exists**. Separate **is one of** values with commas; a value can't contain
+a comma or start or end with a space.
 
 On desktop and web, pick **Deliveries** from a task's menu to see recent
 requests and the prompt each one produced.

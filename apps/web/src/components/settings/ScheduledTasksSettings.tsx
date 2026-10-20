@@ -169,7 +169,8 @@ function WebhookFiltersField({
         <div className="min-w-0 space-y-1">
           <Label>Filters</Label>
           <p className="text-sm text-muted-foreground">
-            Run only when every filter matches. Other requests are logged as filtered.
+            Run only when every filter matches. Other requests are logged as filtered. Separate “is
+            one of” values with commas; a value can't contain a comma.
           </p>
         </div>
         <Button
@@ -223,13 +224,7 @@ function WebhookFiltersField({
             <Input
               aria-label={`Filter ${index + 1} value`}
               className="min-w-0 flex-1"
-              placeholder={
-                filter.op === "in"
-                  ? "opened, reopened"
-                  : filter.op === "matches"
-                    ? "^v\\d+"
-                    : "opened"
-              }
+              placeholder={filter.op === "in" ? "opened, reopened" : "opened"}
               value={filter.value}
               onChange={(event) => update(index, { value: event.target.value })}
             />
@@ -342,13 +337,20 @@ const DELIVERY_OUTCOME_LABELS: Record<ScheduledTaskWebhookDeliveryOutcome, strin
   filtered: "Filtered",
 };
 
-function deliveryOutcomeVariant(outcome: ScheduledTaskWebhookDeliveryOutcome) {
+// A newer server can report an outcome this client has no label for.
+function deliveryOutcomeLabel(outcome: string): string {
+  return Object.hasOwn(DELIVERY_OUTCOME_LABELS, outcome)
+    ? DELIVERY_OUTCOME_LABELS[outcome as ScheduledTaskWebhookDeliveryOutcome]
+    : outcome.replaceAll("_", " ");
+}
+
+function deliveryOutcomeVariant(outcome: string) {
   if (outcome === "accepted") return "success";
-  if (outcome === "filtered") return "outline";
   if (outcome === "disabled" || outcome === "rate_limited" || outcome === "expired") {
     return "warning";
   }
-  return "error";
+  if (outcome === "dispatch_failed" || outcome === "rejected_signature") return "error";
+  return "outline";
 }
 
 function statusVariant(status: ScheduledTask["lastRunStatus"]) {
@@ -850,7 +852,7 @@ function WebhookDeliveriesDialog({
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <Badge variant={deliveryOutcomeVariant(selected.outcome)}>
-                  {DELIVERY_OUTCOME_LABELS[selected.outcome]}
+                  {deliveryOutcomeLabel(selected.outcome)}
                 </Badge>
                 <span>
                   {selected.method} · <ScheduledRelativeLabel value={selected.receivedAt} />
@@ -906,7 +908,7 @@ function WebhookDeliveriesDialog({
                     onClick={() => setSelectedId(delivery.id)}
                   >
                     <Badge variant={deliveryOutcomeVariant(delivery.outcome)}>
-                      {DELIVERY_OUTCOME_LABELS[delivery.outcome]}
+                      {deliveryOutcomeLabel(delivery.outcome)}
                     </Badge>
                     <span>{delivery.method}</span>
                     <span className="text-muted-foreground">
@@ -1187,11 +1189,8 @@ function ScheduledTaskEditorForm({
       return;
     }
     const parsedFilters = parseWebhookFilterDrafts(draft.filters);
-    if (draft.scheduleMode === "webhook" && "invalidIndex" in parsedFilters) {
-      reportFailure(
-        "Invalid filter",
-        `Filter ${parsedFilters.invalidIndex + 1} needs a path under body, headers or query, and a value its test accepts.`,
-      );
+    if (draft.scheduleMode === "webhook" && "error" in parsedFilters) {
+      reportFailure("Invalid filter", parsedFilters.error);
       return;
     }
     const schedule = scheduleFromDraft(draft);

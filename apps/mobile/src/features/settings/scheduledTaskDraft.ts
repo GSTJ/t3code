@@ -116,7 +116,8 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
               prefix: draft.signature.prefix,
             },
       maxDeliveryAgeMinutes,
-      ...(parsedFilters.filters.length > 0 ? { filters: parsedFilters.filters } : {}),
+      // Always sent: the server keeps stored filters when the key is missing.
+      filters: parsedFilters.filters,
     };
   }
   if (draft.mode === "interval") {

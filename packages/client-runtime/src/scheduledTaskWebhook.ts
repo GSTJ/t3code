@@ -18,7 +18,10 @@ export function parseMaxDeliveryAge(value: string): number | null | undefined {
     : undefined;
 }
 
-/** One editable filter row. `in` takes a comma-separated list; `exists` ignores the value. */
+/**
+ * One editable filter row. `in` takes a comma-separated list, which is
+ * lossless because list values can't contain commas; `exists` ignores the value.
+ */
 export interface WebhookFilterDraft {
   readonly path: string;
   readonly op: ScheduledTaskWebhookFilterOp;
@@ -33,7 +36,6 @@ export const WEBHOOK_FILTER_OPS: ReadonlyArray<{
   { op: "notEquals", label: "does not equal" },
   { op: "in", label: "is one of" },
   { op: "startsWith", label: "starts with" },
-  { op: "matches", label: "matches regex" },
   { op: "exists", label: "exists" },
 ];
 
@@ -58,13 +60,14 @@ const decodeFilter = Schema.decodeUnknownOption(ScheduledTaskWebhookFilter);
 
 /**
  * Checks each row with the server's own schema, so a draft that parses here
- * also saves. `invalidIndex` names the first row that would not.
+ * also saves. The error names the first row that would not.
  */
 export function parseWebhookFilterDrafts(
   drafts: ReadonlyArray<WebhookFilterDraft>,
-):
-  | { readonly filters: ReadonlyArray<ScheduledTaskWebhookFilter> }
-  | { readonly invalidIndex: number } {
+): { readonly filters: ReadonlyArray<ScheduledTaskWebhookFilter> } | { readonly error: string } {
+  if (drafts.length > MAX_WEBHOOK_FILTERS) {
+    return { error: `Use at most ${MAX_WEBHOOK_FILTERS} filters.` };
+  }
   const filters: ScheduledTaskWebhookFilter[] = [];
   for (const [index, draft] of drafts.entries()) {
     const path = draft.path.trim();
@@ -82,8 +85,18 @@ export function parseWebhookFilterDrafts(
             }
           : { path, op: draft.op, value: draft.value },
     );
-    if (Option.isNone(filter)) return { invalidIndex: index };
+    if (Option.isNone(filter)) {
+      return {
+        error: `Filter ${index + 1} needs a path under body, headers or query${
+          draft.op === "exists"
+            ? "."
+            : draft.op === "in"
+              ? ", and at least one value."
+              : ", and a value."
+        }`,
+      };
+    }
     filters.push(filter.value);
   }
-  return filters.length > MAX_WEBHOOK_FILTERS ? { invalidIndex: MAX_WEBHOOK_FILTERS } : { filters };
+  return { filters };
 }

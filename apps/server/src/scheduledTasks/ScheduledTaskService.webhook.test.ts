@@ -1030,3 +1030,89 @@ it.effect("checks filters after the signature and max age, and runs only matchin
     }),
   ),
 );
+
+const pullRequestFilterInput = () =>
+  webhookTaskInput({
+    schedule: {
+      type: "webhook",
+      filters: [{ path: "headers.x-github-event", op: "equals", value: "pull_request" }],
+    },
+  });
+const githubEvent = (event: string) => ({
+  headers: { "content-type": "application/json", "x-github-event": event },
+});
+
+it.effect("filtered deliveries take no rate slot and cannot evict real deliveries", () =>
+  withService(({ service, launches }) =>
+    Effect.gen(function* () {
+      const { task } = yield* service.upsert(yield* pullRequestFilterInput());
+      const ignored = yield* Effect.forEach(Array.from({ length: 70 }), () =>
+        service.triggerWebhook(requestFor(task, githubEvent("push"))),
+      );
+      assert.isTrue(
+        ignored.every((result) => result._tag === "accepted" && result.outcome === "filtered"),
+      );
+      const matched = yield* service.triggerWebhook(requestFor(task, githubEvent("pull_request")));
+      assert.deepInclude(matched, { _tag: "accepted", outcome: "accepted" });
+      yield* Queue.take(launches);
+      yield* Effect.forEach(Array.from({ length: 5 }), () =>
+        service.triggerWebhook(requestFor(task, githubEvent("push"))),
+      );
+
+      const outcomes = (yield* service.listWebhookDeliveries({ id: task.id })).deliveries.map(
+        (delivery) => delivery.outcome,
+      );
+      assert.equal(outcomes.filter((outcome) => outcome === "filtered").length, 20);
+      assert.equal(outcomes.filter((outcome) => outcome === "accepted").length, 1);
+    }),
+  ),
+);
+
+it.effect("a filtered relay delivery releases its claim, so a redelivery is evaluated again", () =>
+  withService(({ service, launches }) =>
+    Effect.gen(function* () {
+      const { task } = yield* service.upsert(yield* pullRequestFilterInput());
+      const held = { relayDeliveryId: "relay-filtered" };
+      const first = yield* service.triggerWebhook(
+        requestFor(task, { ...held, ...githubEvent("push") }),
+      );
+      const again = yield* service.triggerWebhook(
+        requestFor(task, { ...held, ...githubEvent("push") }),
+      );
+      assert.deepInclude(first, { _tag: "accepted", outcome: "filtered" });
+      assert.deepInclude(again, { _tag: "accepted", outcome: "filtered" });
+      const ran = yield* service.triggerWebhook(
+        requestFor(task, { ...held, ...githubEvent("pull_request") }),
+      );
+      assert.deepInclude(ran, { _tag: "accepted", outcome: "accepted" });
+      yield* Queue.take(launches);
+      const replayed = yield* service.triggerWebhook(
+        requestFor(task, { ...held, ...githubEvent("pull_request") }),
+      );
+      assert.deepInclude(replayed, { _tag: "accepted", outcome: "duplicate" });
+    }),
+  ),
+);
+
+it.effect("a save without filters keeps the stored ones and an empty list clears them", () =>
+  withService(({ service }) =>
+    Effect.gen(function* () {
+      const { task } = yield* service.upsert(yield* pullRequestFilterInput());
+      const filters = task.schedule.type === "webhook" ? task.schedule.filters : undefined;
+      assert.lengthOf(filters ?? [], 1);
+
+      const kept = yield* service.upsert(
+        yield* webhookTaskInput({ title: "Renamed", schedule: { type: "webhook" } }),
+      );
+      assert.deepEqual(
+        kept.task.schedule.type === "webhook" && kept.task.schedule.filters,
+        filters,
+      );
+
+      const cleared = yield* service.upsert(
+        yield* webhookTaskInput({ schedule: { type: "webhook", filters: [] } }),
+      );
+      assert.notProperty(cleared.task.schedule, "filters");
+    }),
+  ),
+);

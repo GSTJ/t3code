@@ -84,7 +84,6 @@ const WebhookMaxDeliveryAgeMinutes = Schema.Int.check(
 });
 
 export const MAX_WEBHOOK_FILTERS = 16;
-export const MAX_WEBHOOK_FILTER_PATTERN_LENGTH = 256;
 
 const WebhookFilterPath = TrimmedNonEmptyString.check(
   Schema.isPattern(/^(body|headers|query)(\.|$)/),
@@ -93,19 +92,13 @@ const WebhookFilterPath = TrimmedNonEmptyString.check(
     "Request value to test, in placeholder syntax without braces: headers.x-github-event, body.action, query.source.",
 });
 
-const WebhookFilterPattern = Schema.String.check(
-  Schema.isMaxLength(MAX_WEBHOOK_FILTER_PATTERN_LENGTH),
-  Schema.makeFilter(
-    (pattern: string) => {
-      try {
-        return RegExp(pattern) instanceof RegExp;
-      } catch {
-        return "an invalid regular expression";
-      }
-    },
-    { expected: "a valid regular expression" },
-  ),
-).annotate({ description: "Unanchored JavaScript regular expression." });
+/**
+ * Forms edit an `in` list as comma-separated text, so a value that has no
+ * comma and no surrounding whitespace survives that round trip unchanged.
+ */
+const WebhookFilterListValue = Schema.String.check(
+  Schema.isPattern(/^[^,\s](?:[^,]*[^,\s])?$/),
+).annotate({ description: "Non-empty, without commas or surrounding whitespace." });
 
 export const ScheduledTaskWebhookFilter = Schema.Union([
   Schema.Struct({
@@ -116,12 +109,7 @@ export const ScheduledTaskWebhookFilter = Schema.Union([
   Schema.Struct({
     path: WebhookFilterPath,
     op: Schema.Literal("in"),
-    value: Schema.Array(Schema.String),
-  }),
-  Schema.Struct({
-    path: WebhookFilterPath,
-    op: Schema.Literal("matches"),
-    value: WebhookFilterPattern,
+    value: Schema.Array(WebhookFilterListValue).check(Schema.isMinLength(1)),
   }),
   Schema.Struct({ path: WebhookFilterPath, op: Schema.Literal("exists") }),
 ]).annotate({
@@ -135,7 +123,7 @@ const ScheduledTaskWebhookFilters = Schema.Array(ScheduledTaskWebhookFilter)
   .check(Schema.isMaxLength(MAX_WEBHOOK_FILTERS))
   .annotate({
     description:
-      "Run only when every filter matches the request; other requests are logged as filtered. Up to 16.",
+      "Run only when every filter matches the request; other requests are logged as filtered. Up to 16. Omit to keep the stored filters; pass [] to clear them.",
   });
 
 const ScheduledTaskWebhookSchedule = Schema.Struct({
@@ -323,7 +311,8 @@ export const ScheduledTaskWebhookDeliverySummary = Schema.Struct({
   method: TrimmedNonEmptyString,
   contentType: Schema.NullOr(Schema.String),
   bodyBytes: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  outcome: ScheduledTaskWebhookDeliveryOutcome,
+  // Any string, so an outcome added later doesn't break a client's whole list.
+  outcome: Schema.Union([ScheduledTaskWebhookDeliveryOutcome, Schema.String]),
   signatureVerified: Schema.Boolean,
   missingFields: Schema.Array(Schema.String),
   error: Schema.NullOr(Schema.String),

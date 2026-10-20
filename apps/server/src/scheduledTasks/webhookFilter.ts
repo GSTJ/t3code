@@ -27,8 +27,6 @@ export function matchesWebhookFilter(filter: ScheduledTaskWebhookFilter, value: 
       return filter.value.includes(text);
     case "startsWith":
       return text.startsWith(filter.value);
-    case "matches":
-      return new RegExp(filter.value).test(text);
   }
 }
 

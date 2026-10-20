@@ -109,7 +109,8 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
           }
         : null,
       maxDeliveryAgeMinutes,
-      ...(parsedFilters.filters.length > 0 ? { filters: parsedFilters.filters } : {}),
+      // Always sent: the server keeps stored filters when the key is missing.
+      filters: parsedFilters.filters,
     };
   }
   if (draft.scheduleMode === "interval") {

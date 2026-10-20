@@ -299,7 +299,8 @@ function WebhookFilterRows(props: {
       ) : null}
       {props.filters.length > 0 ? (
         <Text className="px-4 pb-3 text-sm text-foreground-muted">
-          Runs only when every filter matches. Other requests are logged as filtered.
+          Runs only when every filter matches. Other requests are logged as filtered. Separate “is
+          one of” values with commas; a value can't contain a comma.
         </Text>
       ) : null}
     </>
@@ -712,11 +713,8 @@ function TaskForm({
       return;
     }
     const parsedFilters = parseWebhookFilterDrafts(draft.schedule.filters);
-    if (draft.schedule.mode === "webhook" && "invalidIndex" in parsedFilters) {
-      Dialog.alert(
-        "Invalid filter",
-        `Filter ${parsedFilters.invalidIndex + 1} needs a path under body, headers or query, and a value its test accepts.`,
-      );
+    if (draft.schedule.mode === "webhook" && "error" in parsedFilters) {
+      Dialog.alert("Invalid filter", parsedFilters.error);
       return;
     }
     if (

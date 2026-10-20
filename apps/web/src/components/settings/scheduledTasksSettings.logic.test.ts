@@ -183,11 +183,13 @@ describe("webhook scheduled tasks", () => {
       type: "webhook",
       signature,
       maxDeliveryAgeMinutes: null,
+      filters: [],
     });
     expect(scheduleFromDraft({ ...draft, signatureSecret: " new " })).toEqual({
       type: "webhook",
       signature: { ...signature, secret: "new" },
       maxDeliveryAgeMinutes: null,
+      filters: [],
     });
   });
 
@@ -199,6 +201,7 @@ describe("webhook scheduled tasks", () => {
       type: "webhook",
       signature: null,
       maxDeliveryAgeMinutes: null,
+      filters: [],
     });
   });
 
@@ -230,12 +233,10 @@ describe("webhook scheduled tasks", () => {
     });
     expect(draft.filters.map((filter) => filter.op)).toEqual(["equals", "in"]);
     expect(scheduleFromDraft(draft)).toMatchObject({ filters });
-    expect(scheduleFromDraft({ ...draft, filters: [] })).not.toHaveProperty("filters");
+    // Sent even when empty, so removing every row clears the stored filters.
+    expect(scheduleFromDraft({ ...draft, filters: [] })).toMatchObject({ filters: [] });
     expect(
-      scheduleFromDraft({
-        ...draft,
-        filters: [{ path: "body.action", op: "matches", value: "(unclosed" }],
-      }),
+      scheduleFromDraft({ ...draft, filters: [{ path: "body.action", op: "in", value: " , " }] }),
     ).toBeNull();
   });
 });

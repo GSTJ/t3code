@@ -21,6 +21,7 @@ describe("webhook filter drafts", () => {
     const filters = [
       { path: "headers.x-github-event", op: "equals", value: "pull_request" },
       { path: "body.action", op: "in", value: ["opened", "reopened"] },
+      { path: "body.label.name", op: "in", value: ["needs review", "a-b"] },
       { path: "query.source", op: "exists" },
     ] as const;
     const drafts = webhookFilterDrafts(filters);
@@ -32,12 +33,20 @@ describe("webhook filter drafts", () => {
     expect(
       parseWebhookFilterDrafts([
         { path: "body.action", op: "equals", value: "opened" },
-        { path: "body.label.name", op: "matches", value: "(unclosed" },
+        { path: "body.action", op: "in", value: " , " },
         { path: "", op: "exists", value: "" },
       ]),
-    ).toEqual({ invalidIndex: 1 });
-    expect(parseWebhookFilterDrafts([{ path: " ", op: "exists", value: "" }])).toEqual({
-      invalidIndex: 0,
+    ).toEqual({
+      error: "Filter 2 needs a path under body, headers or query, and at least one value.",
     });
+    expect(parseWebhookFilterDrafts([{ path: " ", op: "exists", value: "" }])).toEqual({
+      error: "Filter 1 needs a path under body, headers or query.",
+    });
+    const seventeen = Array.from({ length: 17 }, () => ({
+      path: "body.action",
+      op: "exists" as const,
+      value: "",
+    }));
+    expect(parseWebhookFilterDrafts(seventeen)).toEqual({ error: "Use at most 16 filters." });
   });
 });
