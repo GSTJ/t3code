@@ -95,8 +95,8 @@ function FavoriteEditor({
   return <button onClick={() => onClicked(onClick())}>Toggle favorite</button>;
 }
 
-function setup() {
-  const stack = new AsyncDisposableStack();
+async function setup() {
+  await using stack = new AsyncDisposableStack();
   const registry = stack.adopt(AtomRegistry.make(), (registry) => registry.dispose());
   state.settings.clear();
   state.connections.clear();
@@ -133,11 +133,12 @@ function setup() {
       }),
   );
 
+  const environment = stack.move();
   let screen: Screen | undefined;
   const show = async (ui: ReactNode) => {
     const tree = <RegistryContext.Provider value={registry}>{ui}</RegistryContext.Provider>;
     if (screen) await screen.rerender(tree);
-    else screen = stack.use(await render(tree));
+    else screen = environment.use(await render(tree));
   };
 
   return {
@@ -160,7 +161,7 @@ function setup() {
       screen!.container.querySelector("button")!.click();
       return pendingClick!;
     },
-    [Symbol.asyncDispose]: () => stack.disposeAsync(),
+    [Symbol.asyncDispose]: () => environment.disposeAsync(),
   };
 }
 
@@ -168,7 +169,7 @@ describe("environment favorite toggles", () => {
   it.each([false, true])(
     "toggles twice before any server echo when initially favorited=%s",
     async (initiallyFavorited) => {
-      await using fixture = setup();
+      await using fixture = await setup();
       const { registry, durable, writes, mount, click } = fixture;
       const favorites = initiallyFavorited ? [{ provider, model }] : [];
       const settings = { ...initialSettings, favorites };
@@ -191,7 +192,7 @@ describe("environment favorite toggles", () => {
   );
 
   it("keeps the newest pending intent when an earlier write completes", async () => {
-    await using fixture = setup();
+    await using fixture = await setup();
     const { durable, writes, mount, click } = fixture;
     await mount();
     const first = click();
@@ -214,7 +215,7 @@ describe("environment favorite toggles", () => {
   });
 
   it("clears failed intent so a retry still adds the favorite", async () => {
-    await using fixture = setup();
+    await using fixture = await setup();
     const { durable, writes, mount, click } = fixture;
     await mount();
     const failed = click();
@@ -229,7 +230,7 @@ describe("environment favorite toggles", () => {
   });
 
   it("toggles the acknowledged choice when the RPC reply precedes its server echo", async () => {
-    await using fixture = setup();
+    await using fixture = await setup();
     const { registry, durable, writes, mount, click } = fixture;
     await mount();
     const first = click();
@@ -245,7 +246,7 @@ describe("environment favorite toggles", () => {
   });
 
   it("uses a later remote change instead of a cached acknowledged choice", async () => {
-    await using fixture = setup();
+    await using fixture = await setup();
     const { registry, durable, writes, mount, click } = fixture;
     await mount();
     const first = click();
@@ -263,7 +264,7 @@ describe("environment favorite toggles", () => {
   });
 
   it("preserves an acknowledged add when a later remove fails before its echo", async () => {
-    await using fixture = setup();
+    await using fixture = await setup();
     const { durable, writes, mount, click } = fixture;
     await mount();
     const first = click();
@@ -282,7 +283,7 @@ describe("environment favorite toggles", () => {
   });
 
   it("does not reuse another environment's pending intent for the same model", async () => {
-    await using fixture = setup();
+    await using fixture = await setup();
     const { durable, writes, mount, click } = fixture;
     await mount();
     const primary = click();
@@ -298,7 +299,7 @@ describe("environment favorite toggles", () => {
   });
 
   it("reads the latest server state even when the click callback predates its echo", async () => {
-    await using fixture = setup();
+    await using fixture = await setup();
     const { registry, durable, toggles, writes, mount } = fixture;
     await mount();
     const previousClick = toggles.at(-1)!;
@@ -322,7 +323,7 @@ describe("legacy model preferences migration", () => {
   it.each(["succeeds", "fails"] as const)(
     "waits for connection and retries only after reconnect when the first save %s",
     async (outcome) => {
-      await using fixture = setup();
+      await using fixture = await setup();
       const { registry, show } = fixture;
       const environmentId = EnvironmentId.make(`migration-${outcome}`);
       const otherId = EnvironmentId.make(`other-${outcome}`);

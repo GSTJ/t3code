@@ -67,9 +67,7 @@ const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState 
     sessionCookieName: "t3_session",
   },
 });
-let handlers: Array<() => void> = [];
-
-function SettingsEditor() {
+function SettingsEditor({ handlers }: { handlers: Array<() => void> }) {
   const updateSettings = useUpdatePrimarySettings();
   const save = () => void updateSettings(patch);
   handlers.push(save);
@@ -77,19 +75,20 @@ function SettingsEditor() {
 }
 
 async function mountEditor() {
+  const handlers: Array<() => void> = [];
   const screen = await render(
     <RegistryContext.Provider value={appAtomRegistry}>
-      <SettingsEditor />
+      <SettingsEditor handlers={handlers} />
     </RegistryContext.Provider>,
   );
   return {
+    handlers,
     saveSharedSettings: () => screen.container.querySelector("button")!.click(),
     [Symbol.asyncDispose]: () => screen[Symbol.asyncDispose](),
   };
 }
 
 function setup() {
-  handlers = [];
   state.sessions.clear();
   state.sessions.set(
     primaryId,
@@ -219,8 +218,8 @@ describe("shared settings writes", () => {
           (environment) => environment.environmentId !== primaryId,
         );
       }
-      await using _editor = await mountEditor();
-      const previousUpdate = handlers.at(-1)!;
+      await using editor = await mountEditor();
+      const previousUpdate = editor.handlers.at(-1)!;
       await act(() => {
         appAtomRegistry.set(state.sessions.get(remoteId)!, AsyncResult.success(session([])));
       });

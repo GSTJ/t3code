@@ -23,7 +23,7 @@ vi.mock(import("./query"), async (original) => ({
       : { data: state.data, error: state.error }) as never,
 }));
 
-let current: ReturnType<typeof useKnownTerminalSessions>;
+type KnownSessions = ReturnType<typeof useKnownTerminalSessions>;
 const target = {
   environmentId: EnvironmentId.make("secondary"),
   threadId: ThreadId.make("thread"),
@@ -42,45 +42,55 @@ const terminal: TerminalSummary = {
   updatedAt: "2026-09-05T00:00:00.000Z",
 };
 
-function Probe() {
+function Probe({ onSessions }: { onSessions: (sessions: KnownSessions) => void }) {
   const sessions = useKnownTerminalSessions(target);
   useEffect(() => {
-    current = sessions;
-  }, [sessions]);
+    onSessions(sessions);
+  }, [onSessions, sessions]);
   return null;
 }
 
 function setup() {
   Object.assign(state, { canRead: true, data: null, error: null });
+  let current: KnownSessions | undefined;
+  const onSessions = (sessions: KnownSessions) => {
+    current = sessions;
+  };
+  return {
+    get current() {
+      return current;
+    },
+    element: () => <Probe onSessions={onSessions} />,
+  };
 }
 
 it("distinguishes missing metadata from an authoritative empty list across scope changes", async () => {
-  setup();
-  await using screen = await render(<Probe />);
-  expect(current).toBeNull();
+  const probe = setup();
+  await using screen = await render(probe.element());
+  expect(probe.current).toBeNull();
 
   state.data = [terminal];
-  await screen.rerender(<Probe />);
-  expect(current?.[0]).toMatchObject({
+  await screen.rerender(probe.element());
+  expect(probe.current?.[0]).toMatchObject({
     target: { environmentId: "secondary", terminalId: "term-1" },
     state: { hasRunningSubprocess: true },
   });
 
   state.canRead = false;
-  await screen.rerender(<Probe />);
-  expect(current).toBeNull();
+  await screen.rerender(probe.element());
+  expect(probe.current).toBeNull();
 
   state.canRead = true;
   state.data = [];
-  await screen.rerender(<Probe />);
-  expect(current).toEqual([]);
+  await screen.rerender(probe.element());
+  expect(probe.current).toEqual([]);
 });
 
 it("does not reuse cached terminal metadata after a subscription failure", async () => {
-  setup();
+  const probe = setup();
   state.data = [terminal];
-  await using screen = await render(<Probe />);
+  await using screen = await render(probe.element());
   state.error = "Access denied";
-  await screen.rerender(<Probe />);
-  expect(current).toBeNull();
+  await screen.rerender(probe.element());
+  expect(probe.current).toBeNull();
 });

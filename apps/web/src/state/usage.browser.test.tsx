@@ -85,31 +85,40 @@ function environment(
   };
 }
 
-let latest: UsageView;
+interface ProbeProps {
+  selected: ReadonlySet<EnvironmentId> | null;
+  hidden?: ReadonlySet<UsageProviderKind>;
+  window?: typeof input;
+}
 
 function Probe({
   selected,
   hidden,
   window = input,
-}: {
-  selected: ReadonlySet<EnvironmentId> | null;
-  hidden?: ReadonlySet<UsageProviderKind>;
-  window?: typeof input;
-}) {
+  onUsage,
+}: ProbeProps & { onUsage: (usage: UsageView) => void }) {
   const usage = useUsage(window, selected, hidden);
   useLayoutEffect(() => {
-    latest = usage;
-  }, [usage]);
+    onUsage(usage);
+  }, [onUsage, usage]);
   return null;
 }
 
 async function setup() {
   testState.environments = [environment("a", 10), environment("b", 20), environment("slow", null)];
-  const screen = await render(<Probe selected={null} />);
+  let latest: UsageView | undefined;
+  const onUsage = (usage: UsageView) => {
+    latest = usage;
+  };
+  const screen = await render(<Probe selected={null} onUsage={onUsage} />);
+  const show = (props: ProbeProps) => screen.rerender(<Probe {...props} onUsage={onUsage} />);
   return {
-    rerender: screen.rerender,
+    get latest() {
+      return latest!;
+    },
+    show,
     select: (...ids: string[]) =>
-      screen.rerender(<Probe selected={new Set(ids.map((id) => EnvironmentId.make(id)))} />),
+      show({ selected: new Set(ids.map((id) => EnvironmentId.make(id))) }),
     [Symbol.asyncDispose]: () => screen[Symbol.asyncDispose](),
   };
 }
@@ -117,56 +126,56 @@ async function setup() {
 describe("usage environment selection", () => {
   it("starts with all environments and adds results as they arrive", async () => {
     await using screen = await setup();
-    expect(latest.merged.costUsd).toBe(30);
-    expect(latest.isPending).toBe(false);
-    expect(latest.isPartial).toBe(true);
+    expect(screen.latest.merged.costUsd).toBe(30);
+    expect(screen.latest.isPending).toBe(false);
+    expect(screen.latest.isPartial).toBe(true);
 
     testState.environments = [...testState.environments.slice(0, 2), environment("slow", 40)];
-    await screen.rerender(<Probe selected={null} />);
-    expect(latest.merged.costUsd).toBe(70);
-    expect(latest.isPartial).toBe(false);
+    await screen.show({ selected: null });
+    expect(screen.latest.merged.costUsd).toBe(70);
+    expect(screen.latest.isPartial).toBe(false);
   });
 
   it("excludes unselected usage and pending environments, then restores all", async () => {
     await using screen = await setup();
     await screen.select("b");
-    expect(latest.merged.costUsd).toBe(20);
-    expect(latest.merged.models.map((model) => model.model)).toEqual(["b"]);
-    expect(latest.isPending).toBe(false);
-    expect(latest.isPartial).toBe(false);
-    expect(latest.environments).toHaveLength(3);
+    expect(screen.latest.merged.costUsd).toBe(20);
+    expect(screen.latest.merged.models.map((model) => model.model)).toEqual(["b"]);
+    expect(screen.latest.isPending).toBe(false);
+    expect(screen.latest.isPartial).toBe(false);
+    expect(screen.latest.environments).toHaveLength(3);
 
-    await screen.rerender(<Probe selected={null} />);
-    expect(latest.merged.costUsd).toBe(30);
-    expect(latest.isPartial).toBe(true);
+    await screen.show({ selected: null });
+    expect(screen.latest.merged.costUsd).toBe(30);
+    expect(screen.latest.isPartial).toBe(true);
   });
 
   it("distinguishes a pending selection from an empty or failed selection", async () => {
     await using screen = await setup();
     await screen.select("slow");
-    expect(latest.isPending).toBe(true);
-    expect(latest.merged.costUsd).toBe(0);
+    expect(screen.latest.isPending).toBe(true);
+    expect(screen.latest.merged.costUsd).toBe(0);
 
     await screen.select();
-    expect(latest.selectedEnvironments).toHaveLength(0);
-    expect(latest.isPending).toBe(false);
-    expect(latest.isPartial).toBe(false);
+    expect(screen.latest.selectedEnvironments).toHaveLength(0);
+    expect(screen.latest.isPending).toBe(false);
+    expect(screen.latest.isPartial).toBe(false);
 
     testState.environments = [{ ...environment("slow", null), isPending: false, error: "Offline" }];
     await screen.select("slow");
-    expect(latest.isPending).toBe(false);
-    expect(latest.isPartial).toBe(false);
+    expect(screen.latest.isPending).toBe(false);
+    expect(screen.latest.isPartial).toBe(false);
   });
 
   it("deduplicates within the selection so an excluded owner cannot hide usage", async () => {
     await using screen = await setup();
     testState.environments = [environment("a", 10, "shared"), environment("b", 20, "shared")];
-    await screen.rerender(<Probe selected={null} />);
-    expect(latest.merged.costUsd).toBe(10);
+    await screen.show({ selected: null });
+    expect(screen.latest.merged.costUsd).toBe(10);
 
     await screen.select("b");
-    expect(latest.merged.costUsd).toBe(20);
-    expect(latest.merged.duplicateSources).toEqual([]);
+    expect(screen.latest.merged.costUsd).toBe(20);
+    expect(screen.latest.merged.duplicateSources).toEqual([]);
   });
 
   it("keeps selected cached results visible during a refresh", async () => {
@@ -176,44 +185,42 @@ describe("usage environment selection", () => {
       environment("slow", null),
     ];
     await screen.select("a");
-    expect(latest.merged.costUsd).toBe(10);
-    expect(latest.isPending).toBe(false);
-    expect(latest.isPartial).toBe(false);
+    expect(screen.latest.merged.costUsd).toBe(10);
+    expect(screen.latest.isPending).toBe(false);
+    expect(screen.latest.isPartial).toBe(false);
   });
 
   it("shows the last answered usage until the next window answers, for the same selection", async () => {
     await using screen = await setup();
     const selected = new Set([EnvironmentId.make("a")]);
-    await screen.rerender(<Probe selected={selected} />);
-    expect(latest.shown?.merged.costUsd).toBe(10);
+    await screen.show({ selected });
+    expect(screen.latest.shown?.merged.costUsd).toBe(10);
 
     const nextWindow = { ...input, sinceDay: UsageDay.make("2026-08-28") };
     testState.environments = [environment("a", null)];
-    await screen.rerender(<Probe selected={selected} window={nextWindow} />);
-    expect(latest.isPending).toBe(true);
-    expect(latest.shown?.window).toBe(input);
-    expect(latest.shown?.merged.costUsd).toBe(10);
+    await screen.show({ selected, window: nextWindow });
+    expect(screen.latest.isPending).toBe(true);
+    expect(screen.latest.shown?.window).toBe(input);
+    expect(screen.latest.shown?.merged.costUsd).toBe(10);
 
     testState.environments = [{ ...environment("a", null), isPending: false, error: "Offline" }];
-    await screen.rerender(<Probe selected={selected} window={nextWindow} />);
-    expect(latest.isPending).toBe(false);
-    expect(latest.shown?.window).toBe(input);
-    expect(latest.shown?.merged.costUsd).toBe(10);
+    await screen.show({ selected, window: nextWindow });
+    expect(screen.latest.isPending).toBe(false);
+    expect(screen.latest.shown?.window).toBe(input);
+    expect(screen.latest.shown?.merged.costUsd).toBe(10);
 
     testState.environments = [environment("a", 30)];
-    await screen.rerender(<Probe selected={selected} window={nextWindow} />);
-    expect(latest.shown?.window).toBe(nextWindow);
-    expect(latest.shown?.merged.costUsd).toBe(30);
+    await screen.show({ selected, window: nextWindow });
+    expect(screen.latest.shown?.window).toBe(nextWindow);
+    expect(screen.latest.shown?.merged.costUsd).toBe(30);
 
     testState.environments = [environment("a", null)];
-    await screen.rerender(
-      <Probe selected={selected} hidden={new Set(["claude"])} window={input} />,
-    );
-    expect(latest.shown).toBeNull();
+    await screen.show({ selected, hidden: new Set(["claude"]), window: input });
+    expect(screen.latest.shown).toBeNull();
 
     testState.environments = [environment("a", null)];
     await screen.select("a");
-    expect(latest.shown).toBeNull();
+    expect(screen.latest.shown).toBeNull();
   });
 });
 
@@ -221,13 +228,13 @@ describe("usage provider filter", () => {
   it("drops hidden providers from totals and sessions, then restores them", async () => {
     await using screen = await setup();
     testState.environments = [environment("a", 10), environment("c", 5, "c", "claude")];
-    await screen.rerender(<Probe selected={null} hidden={new Set(["codex"])} />);
-    expect(latest.merged.costUsd).toBe(5);
-    expect(latest.merged.sessions).toBe(1);
-    expect(latest.merged.providers.map((entry) => entry.provider)).toEqual(["claude"]);
+    await screen.show({ selected: null, hidden: new Set(["codex"]) });
+    expect(screen.latest.merged.costUsd).toBe(5);
+    expect(screen.latest.merged.sessions).toBe(1);
+    expect(screen.latest.merged.providers.map((entry) => entry.provider)).toEqual(["claude"]);
 
-    await screen.rerender(<Probe selected={null} />);
-    expect(latest.merged.costUsd).toBe(15);
-    expect(latest.merged.sessions).toBe(2);
+    await screen.show({ selected: null });
+    expect(screen.latest.merged.costUsd).toBe(15);
+    expect(screen.latest.merged.sessions).toBe(2);
   });
 });
