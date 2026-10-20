@@ -964,6 +964,41 @@ function TaskForm({
                   setDraft({ ...draft, schedule: { ...draft.schedule, maxDeliveryAgeMinutes } })
                 }
               />
+              <FormField
+                label="Replay key template"
+                value={draft.schedule.replayKey}
+                placeholder="{{headers.delivery-id}}"
+                disabled={saving}
+                borderTop
+                onChange={(replayKey) =>
+                  setDraft({ ...draft, schedule: { ...draft.schedule, replayKey } })
+                }
+              />
+              <FormField
+                label="Coalesce key template"
+                value={draft.schedule.coalesceKey}
+                placeholder="{{body.id}}"
+                disabled={saving}
+                borderTop
+                onChange={(coalesceKey) =>
+                  setDraft({ ...draft, schedule: { ...draft.schedule, coalesceKey } })
+                }
+              />
+              <FormField
+                label="Coalesce window (seconds, 10–3600)"
+                value={draft.schedule.coalesceWindowSeconds}
+                placeholder="120"
+                keyboardType="number-pad"
+                disabled={saving}
+                borderTop
+                onChange={(coalesceWindowSeconds) =>
+                  setDraft({ ...draft, schedule: { ...draft.schedule, coalesceWindowSeconds } })
+                }
+              />
+              <Text className="px-4 pb-3 text-sm text-foreground-muted">
+                Replay keys suppress repeats for 7 days. Coalescing runs the latest payload when the
+                window from the first delivery closes. Empty keys run normally.
+              </Text>
             </>
           ) : (
             <>

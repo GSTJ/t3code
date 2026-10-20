@@ -83,12 +83,24 @@ const WebhookMaxDeliveryAgeMinutes = Schema.Int.check(
     "Skip requests the relay held longer than this many minutes while the environment was offline. Null runs every request.",
 });
 
+const ScheduledTaskWebhookDedupe = Schema.Struct({
+  replayKey: Schema.optional(Schema.String),
+  coalesceKey: Schema.optional(Schema.String),
+  coalesceWindowSeconds: Schema.optional(
+    Schema.Int.check(Schema.isBetween({ minimum: 10, maximum: 3600 })),
+  ),
+}).annotate({
+  description:
+    "Replay key template (7 days), coalesce key template, and fixed window in seconds (default 120).",
+});
+
 const ScheduledTaskWebhookSchedule = Schema.Struct({
   type: Schema.Literal("webhook").annotate({
     description: "Run when the task's webhook URL receives a request.",
   }),
   signature: Schema.NullOr(ScheduledTaskWebhookSignature),
   maxDeliveryAgeMinutes: Schema.optional(Schema.NullOr(WebhookMaxDeliveryAgeMinutes)),
+  dedupe: Schema.optional(ScheduledTaskWebhookDedupe),
 }).annotate({
   description:
     "Run on each request to the task's webhook URL. The prompt may use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} and {{request}} placeholders.",
@@ -115,6 +127,7 @@ const ScheduledTaskUpsertWebhookSchedule = Schema.Struct({
     description: "Signature check; omit or null to accept requests by URL token only.",
   }),
   maxDeliveryAgeMinutes: Schema.optional(Schema.NullOr(WebhookMaxDeliveryAgeMinutes)),
+  dedupe: Schema.optional(ScheduledTaskWebhookDedupe),
 }).annotate({
   description:
     "Run on each request to the task's webhook URL. The prompt may use {{body.path}}, {{headers.name}}, {{query.name}}, {{body}} and {{request}} placeholders.",
@@ -251,6 +264,8 @@ export type ScheduledTaskWebhookDeliveryId = typeof ScheduledTaskWebhookDelivery
 export const ScheduledTaskWebhookDeliveryOutcome = Schema.Literals([
   "accepted",
   "dispatch_failed",
+  "duplicate",
+  "coalesced",
   "rejected_signature",
   "disabled",
   "rate_limited",
@@ -265,7 +280,7 @@ export const ScheduledTaskWebhookDeliverySummary = Schema.Struct({
   method: TrimmedNonEmptyString,
   contentType: Schema.NullOr(Schema.String),
   bodyBytes: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  outcome: ScheduledTaskWebhookDeliveryOutcome,
+  outcome: Schema.Union([ScheduledTaskWebhookDeliveryOutcome, Schema.String]),
   signatureVerified: Schema.Boolean,
   missingFields: Schema.Array(Schema.String),
   error: Schema.NullOr(Schema.String),
@@ -284,6 +299,8 @@ export type ScheduledTaskWebhookDelivery = typeof ScheduledTaskWebhookDelivery.T
 
 export const ScheduledTaskListWebhookDeliveriesInput = Schema.Struct({
   id: ScheduledTaskId,
+  // Older clients decode a closed outcome list; opt in to new outcomes.
+  acceptAnyOutcome: Schema.optional(Schema.Boolean),
 });
 export type ScheduledTaskListWebhookDeliveriesInput =
   typeof ScheduledTaskListWebhookDeliveriesInput.Type;

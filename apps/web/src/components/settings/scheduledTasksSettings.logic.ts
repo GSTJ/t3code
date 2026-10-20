@@ -77,6 +77,9 @@ export interface DraftState {
   /** Write-only: empty keeps the secret already stored on the server. */
   readonly signatureSecret: string;
   readonly maxDeliveryAgeMinutes: string;
+  readonly replayKey: string;
+  readonly coalesceKey: string;
+  readonly coalesceWindowSeconds: string;
 }
 
 export const WEBHOOK_SIGNATURE_DEFAULTS = {
@@ -89,6 +92,16 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
   if (draft.scheduleMode === "webhook") {
     const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
     if (maxDeliveryAgeMinutes === undefined) return null;
+    const coalesceWindowSeconds = draft.coalesceWindowSeconds?.trim()
+      ? Number(draft.coalesceWindowSeconds)
+      : undefined;
+    if (
+      coalesceWindowSeconds !== undefined &&
+      (!Number.isInteger(coalesceWindowSeconds) ||
+        coalesceWindowSeconds < 10 ||
+        coalesceWindowSeconds > 3600)
+    )
+      return null;
     const secret = draft.signatureSecret.trim();
     return {
       type: "webhook",
@@ -101,6 +114,15 @@ export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedul
           }
         : null,
       maxDeliveryAgeMinutes,
+      ...(draft.replayKey || draft.coalesceKey || coalesceWindowSeconds !== undefined
+        ? {
+            dedupe: {
+              ...(draft.replayKey ? { replayKey: draft.replayKey } : {}),
+              ...(draft.coalesceKey ? { coalesceKey: draft.coalesceKey } : {}),
+              ...(coalesceWindowSeconds === undefined ? {} : { coalesceWindowSeconds }),
+            },
+          }
+        : { dedupe: {} }),
     };
   }
   if (draft.scheduleMode === "interval") {
@@ -157,6 +179,12 @@ export function taskToDraft(task: ScheduledTask): DraftState {
         }
       : { signatureEnabled: false, ...WEBHOOK_SIGNATURE_DEFAULTS }),
     signatureSecret: "",
+    replayKey: schedule.type === "webhook" ? (schedule.dedupe?.replayKey ?? "") : "",
+    coalesceKey: schedule.type === "webhook" ? (schedule.dedupe?.coalesceKey ?? "") : "",
+    coalesceWindowSeconds:
+      schedule.type === "webhook" && schedule.dedupe?.coalesceWindowSeconds !== undefined
+        ? String(schedule.dedupe.coalesceWindowSeconds)
+        : "",
     maxDeliveryAgeMinutes:
       schedule.type === "webhook" && schedule.maxDeliveryAgeMinutes != null
         ? String(schedule.maxDeliveryAgeMinutes)

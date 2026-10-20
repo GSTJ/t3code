@@ -30,6 +30,22 @@ describe("scheduleDraftForTask", () => {
     expect(scheduleFromDraft(scheduleDraftForTask({ schedule }))).toEqual(schedule);
   });
 
+  it("round-trips dedupe settings and rejects invalid windows", () => {
+    const dedupe = {
+      replayKey: "{{headers.delivery-id}}",
+      coalesceKey: "{{body.id}}",
+      coalesceWindowSeconds: 3600,
+    };
+    const draft = scheduleDraftForTask({ schedule: { type: "webhook", signature: null, dedupe } });
+    expect(scheduleFromDraft(draft)).toMatchObject({ dedupe });
+    expect(
+      scheduleFromDraft({ ...draft, replayKey: "", coalesceKey: "", coalesceWindowSeconds: "" }),
+    ).toMatchObject({ dedupe: {} });
+    for (const coalesceWindowSeconds of ["9", "3601", "1.5", "abc"]) {
+      expect(scheduleFromDraft({ ...draft, coalesceWindowSeconds })).toBeNull();
+    }
+  });
+
   it("round-trips a webhook schedule without a signature", () => {
     const draft = scheduleDraftForTask({ schedule: { type: "webhook", signature: null } });
     expect(draft.mode).toBe("webhook");
@@ -37,6 +53,7 @@ describe("scheduleDraftForTask", () => {
       type: "webhook",
       signature: null,
       maxDeliveryAgeMinutes: null,
+      dedupe: {},
     });
   });
 
@@ -50,6 +67,7 @@ describe("scheduleDraftForTask", () => {
     expect(scheduleFromDraft({ ...draft, maxDeliveryAgeMinutes: "0" })).toBeNull();
     expect(scheduleFromDraft({ ...draft, maxDeliveryAgeMinutes: "" })).toMatchObject({
       maxDeliveryAgeMinutes: null,
+      dedupe: {},
     });
   });
 
@@ -62,7 +80,7 @@ describe("scheduleDraftForTask", () => {
     const saved = scheduleFromDraft(
       scheduleDraftForTask({ schedule: { type: "webhook", signature } }),
     );
-    expect(saved).toEqual({ type: "webhook", signature, maxDeliveryAgeMinutes: null });
+    expect(saved).toEqual({ type: "webhook", signature, maxDeliveryAgeMinutes: null, dedupe: {} });
     expect(saved?.type === "webhook" && saved.signature && "secret" in saved.signature).toBe(false);
   });
 });

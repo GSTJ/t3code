@@ -50,6 +50,9 @@ export type ScheduleDraft = {
   readonly intervalMinutes: string;
   readonly signature: ScheduledTaskWebhookSignature | null;
   readonly maxDeliveryAgeMinutes: string;
+  readonly replayKey: string;
+  readonly coalesceKey: string;
+  readonly coalesceWindowSeconds: string;
 };
 
 export const DEFAULT_SCHEDULE: ScheduleDraft = {
@@ -59,6 +62,9 @@ export const DEFAULT_SCHEDULE: ScheduleDraft = {
   intervalMinutes: "15",
   signature: null,
   maxDeliveryAgeMinutes: "",
+  replayKey: "",
+  coalesceKey: "",
+  coalesceWindowSeconds: "",
 };
 
 export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): ScheduleDraft {
@@ -82,6 +88,12 @@ export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): Sch
         ...DEFAULT_SCHEDULE,
         mode: "webhook",
         signature: task.schedule.signature,
+        replayKey: task.schedule.dedupe?.replayKey ?? "",
+        coalesceKey: task.schedule.dedupe?.coalesceKey ?? "",
+        coalesceWindowSeconds:
+          task.schedule.dedupe?.coalesceWindowSeconds === undefined
+            ? ""
+            : String(task.schedule.dedupe.coalesceWindowSeconds),
         maxDeliveryAgeMinutes:
           task.schedule.maxDeliveryAgeMinutes == null
             ? ""
@@ -94,6 +106,16 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
   if (draft.mode === "webhook") {
     const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
     if (maxDeliveryAgeMinutes === undefined) return null;
+    const coalesceWindowSeconds = draft.coalesceWindowSeconds?.trim()
+      ? Number(draft.coalesceWindowSeconds)
+      : undefined;
+    if (
+      coalesceWindowSeconds !== undefined &&
+      (!Number.isInteger(coalesceWindowSeconds) ||
+        coalesceWindowSeconds < 10 ||
+        coalesceWindowSeconds > 3600)
+    )
+      return null;
     // No secret is sent, so the server keeps the stored one.
     return {
       type: "webhook",
@@ -106,6 +128,15 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
               prefix: draft.signature.prefix,
             },
       maxDeliveryAgeMinutes,
+      ...(draft.replayKey || draft.coalesceKey || coalesceWindowSeconds !== undefined
+        ? {
+            dedupe: {
+              ...(draft.replayKey ? { replayKey: draft.replayKey } : {}),
+              ...(draft.coalesceKey ? { coalesceKey: draft.coalesceKey } : {}),
+              ...(coalesceWindowSeconds === undefined ? {} : { coalesceWindowSeconds }),
+            },
+          }
+        : { dedupe: {} }),
     };
   }
   if (draft.mode === "interval") {
@@ -160,6 +191,9 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     [...draft.schedule.weekdays].sort((a, b) => a - b),
     draft.schedule.intervalMinutes,
     draft.schedule.maxDeliveryAgeMinutes,
+    draft.schedule.replayKey,
+    draft.schedule.coalesceKey,
+    draft.schedule.coalesceWindowSeconds,
     draft.workspace,
     draft.baseRef,
     draft.checkoutPath,

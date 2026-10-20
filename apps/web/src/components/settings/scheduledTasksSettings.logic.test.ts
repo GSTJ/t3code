@@ -175,6 +175,28 @@ describe("webhook scheduled tasks", () => {
     webhook: { path: "/api/hooks/legacy-task/token", url: null, hasSecret: true },
   };
 
+  it("round-trips dedupe settings, clears them, and rejects invalid windows", () => {
+    const dedupe = {
+      replayKey: "{{headers.delivery-id}}",
+      coalesceKey: "{{body.id}}",
+      coalesceWindowSeconds: 10,
+    };
+    const draft = taskToDraft({
+      ...webhookTask,
+      schedule: { type: "webhook", signature: null, dedupe },
+    });
+    expect(scheduleFromDraft(draft)).toMatchObject({ dedupe });
+    expect(
+      scheduleFromDraft({ ...draft, replayKey: "", coalesceKey: "", coalesceWindowSeconds: "" }),
+    ).toMatchObject({ dedupe: {} });
+    expect(scheduleFromDraft({ ...draft, coalesceWindowSeconds: "" })).toMatchObject({
+      dedupe: { replayKey: dedupe.replayKey, coalesceKey: dedupe.coalesceKey },
+    });
+    for (const coalesceWindowSeconds of ["9", "3601", "1.5", "abc"]) {
+      expect(scheduleFromDraft({ ...draft, coalesceWindowSeconds })).toBeNull();
+    }
+  });
+
   it("keeps a stored secret when the secret field is left blank", () => {
     const draft = taskToDraft(webhookTask);
     expect(draft.scheduleMode).toBe("webhook");
@@ -183,11 +205,13 @@ describe("webhook scheduled tasks", () => {
       type: "webhook",
       signature,
       maxDeliveryAgeMinutes: null,
+      dedupe: {},
     });
     expect(scheduleFromDraft({ ...draft, signatureSecret: " new " })).toEqual({
       type: "webhook",
       signature: { ...signature, secret: "new" },
       maxDeliveryAgeMinutes: null,
+      dedupe: {},
     });
   });
 
@@ -199,6 +223,7 @@ describe("webhook scheduled tasks", () => {
       type: "webhook",
       signature: null,
       maxDeliveryAgeMinutes: null,
+      dedupe: {},
     });
   });
 
@@ -212,6 +237,7 @@ describe("webhook scheduled tasks", () => {
     for (const blank of ["", "  "]) {
       expect(scheduleFromDraft({ ...draft, maxDeliveryAgeMinutes: blank })).toMatchObject({
         maxDeliveryAgeMinutes: null,
+        dedupe: {},
       });
     }
     for (const invalid of ["0", "-5", "1.5", "abc", "1441"]) {

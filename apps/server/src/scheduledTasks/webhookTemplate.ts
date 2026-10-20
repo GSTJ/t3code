@@ -116,6 +116,7 @@ export function renderWebhookPrompt(
   template: string,
   request: WebhookRequest,
   frameId: string,
+  raw = false,
 ): RenderedWebhookPrompt {
   const missing: string[] = [];
   let body: { parsed: unknown } | undefined;
@@ -156,6 +157,7 @@ export function renderWebhookPrompt(
     }
     // An empty value carries no request data, so it needs no frame or note.
     if (text === "") return "";
+    if (raw) return text;
     framed = true;
     return `<${tag}>${text.replace(MENTION, "$&\u2060")}</${tag}>`;
   });

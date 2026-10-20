@@ -1,3 +1,4 @@
+import Migration0067 from "./Migrations/067_WebhookDedupe.ts";
 import * as Migrator from "effect/sql/Migrator";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -138,6 +139,7 @@ export const migrationEntries = [
   [64, "CanonicalizeThreadPullRequestLinks", Migration0064],
   [65, "CodexUsageNativeTurnIndex", Migration0065],
   [66, "RepairClientSettlementTimestamps", Migration0066],
+  [67, "WebhookDedupe", Migration0067],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

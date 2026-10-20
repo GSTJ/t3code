@@ -109,6 +109,14 @@ same secret in the repository's webhook settings with content type
 up on desktop or web; mobile keeps an existing signature check but can't turn
 one on.
 
+To suppress repeated deliveries, set a **Replay key** template, such as
+`{{headers.delivery-id}}`. The same key is ignored for seven days per task.
+To combine a burst, set a **Coalesce key**, such as `{{body.id}}`, and a window
+of 10–3600 seconds (120 by default). One run uses the latest body, headers,
+and query when the window from the first delivery closes; later requests
+do not extend it. Pending windows survive a server restart. An empty key
+render skips that key's rule. Clear the templates to turn dedupe off.
+
 On desktop and web, pick **Deliveries** from a task's menu to see recent
 requests and the prompt each one produced.
 

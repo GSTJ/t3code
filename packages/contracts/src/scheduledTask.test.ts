@@ -5,10 +5,29 @@ import {
   MIN_SCHEDULED_TASK_INTERVAL_MS,
   ScheduledTaskSchedule,
   ScheduledTaskUpsertSchedule,
+  ScheduledTaskWebhookDeliverySummary,
 } from "./scheduledTask.ts";
 
 const decodeSchedule = Schema.decodeUnknownSync(ScheduledTaskSchedule);
 const decodeUpsertSchedule = Schema.decodeUnknownSync(ScheduledTaskUpsertSchedule);
+const decodeDeliverySummary = Schema.decodeSync(ScheduledTaskWebhookDeliverySummary);
+
+it.each(["duplicate", "coalesced", "future_outcome"])("decodes delivery outcome %s", (outcome) => {
+  expect(
+    decodeDeliverySummary({
+      id: "delivery:test",
+      taskId: "scheduled-task:test",
+      receivedAt: "2026-10-20T00:00:00.000Z",
+      method: "POST",
+      contentType: null,
+      bodyBytes: 0,
+      outcome,
+      signatureVerified: false,
+      missingFields: [],
+      error: null,
+    }).outcome,
+  ).toBe(outcome);
+});
 
 describe("ScheduledTaskSchedule", () => {
   it("keeps legacy sub-minute persisted schedules readable", () => {

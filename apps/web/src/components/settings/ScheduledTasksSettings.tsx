@@ -22,7 +22,6 @@ import type {
   ScheduledTaskId,
   ScheduledTaskSchedule,
   ScheduledTaskUpsertInput,
-  ScheduledTaskWebhookDeliveryOutcome,
   ScheduledTaskWebhookDeliverySummary,
   ThreadId,
 } from "@t3tools/contracts";
@@ -144,6 +143,9 @@ const EMPTY_DRAFT: DraftState = {
   ...WEBHOOK_SIGNATURE_DEFAULTS,
   signatureSecret: "",
   maxDeliveryAgeMinutes: "",
+  replayKey: "",
+  coalesceKey: "",
+  coalesceWindowSeconds: "",
 };
 
 function Field({
@@ -230,18 +232,26 @@ export function ScheduledRelativeLabel(props: { value: string | null }) {
   return relativeLabel(props.value, Date.parse(`${nowMinute}:00.000Z`));
 }
 
-const DELIVERY_OUTCOME_LABELS: Record<ScheduledTaskWebhookDeliveryOutcome, string> = {
-  accepted: "Ran",
+const DELIVERY_OUTCOME_LABELS: Record<string, string> = {
+  accepted: "Accepted",
   dispatch_failed: "Run failed",
+  duplicate: "Duplicate",
+  coalesced: "Coalesced",
   rejected_signature: "Bad signature",
   disabled: "Task paused",
   rate_limited: "Rate limited",
   expired: "Too old",
 };
 
-function deliveryOutcomeVariant(outcome: ScheduledTaskWebhookDeliveryOutcome) {
+function deliveryOutcomeVariant(outcome: string) {
   if (outcome === "accepted") return "success";
-  if (outcome === "disabled" || outcome === "rate_limited" || outcome === "expired") {
+  if (
+    outcome === "duplicate" ||
+    outcome === "coalesced" ||
+    outcome === "disabled" ||
+    outcome === "rate_limited" ||
+    outcome === "expired"
+  ) {
     return "warning";
   }
   return "error";
@@ -707,7 +717,10 @@ function WebhookDeliveriesDialog({
   readonly onClose: () => void;
 }) {
   const deliveriesQuery = useEnvironmentQuery(
-    serverEnvironment.scheduledTaskWebhookDeliveries({ environmentId, input: { id: task.id } }),
+    serverEnvironment.scheduledTaskWebhookDeliveries({
+      environmentId,
+      input: { id: task.id, acceptAnyOutcome: true },
+    }),
   );
   const [selectedId, setSelectedId] = useState<ScheduledTaskWebhookDeliverySummary["id"] | null>(
     null,
@@ -746,7 +759,7 @@ function WebhookDeliveriesDialog({
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <Badge variant={deliveryOutcomeVariant(selected.outcome)}>
-                  {DELIVERY_OUTCOME_LABELS[selected.outcome]}
+                  {DELIVERY_OUTCOME_LABELS[selected.outcome] ?? selected.outcome}
                 </Badge>
                 <span>
                   {selected.method} · <ScheduledRelativeLabel value={selected.receivedAt} />
@@ -792,7 +805,7 @@ function WebhookDeliveriesDialog({
                     onClick={() => setSelectedId(delivery.id)}
                   >
                     <Badge variant={deliveryOutcomeVariant(delivery.outcome)}>
-                      {DELIVERY_OUTCOME_LABELS[delivery.outcome]}
+                      {DELIVERY_OUTCOME_LABELS[delivery.outcome] ?? delivery.outcome}
                     </Badge>
                     <span>{delivery.method}</span>
                     <span className="text-muted-foreground">
@@ -1072,8 +1085,8 @@ function ScheduledTaskEditorForm({
     const schedule = scheduleFromDraft(draft);
     if (schedule === null) {
       reportFailure(
-        "Invalid age limit",
-        `Enter whole minutes from 1 to ${MAX_WEBHOOK_DELIVERY_AGE_MINUTES}, or leave it blank.`,
+        "Invalid webhook limits",
+        `Age must be whole minutes from 1 to ${MAX_WEBHOOK_DELIVERY_AGE_MINUTES}; coalesce window must be whole seconds from 10 to 3600. Leave either blank for its default.`,
       );
       return;
     }
@@ -1415,6 +1428,60 @@ function ScheduledTaskEditorForm({
                     }
                   />
                 </Field>
+                <Field
+                  label="Replay key"
+                  hint="template, optional"
+                  htmlFor="scheduled-task-replay-key"
+                >
+                  <Input
+                    id="scheduled-task-replay-key"
+                    placeholder="{{headers.delivery-id}}"
+                    value={draft.replayKey}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, replayKey: event.target.value }))
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Coalesce key"
+                  hint="template, optional"
+                  htmlFor="scheduled-task-coalesce-key"
+                >
+                  <Input
+                    id="scheduled-task-coalesce-key"
+                    placeholder="{{body.id}}"
+                    value={draft.coalesceKey}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, coalesceKey: event.target.value }))
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Coalesce window"
+                  hint="seconds, 10–3600"
+                  htmlFor="scheduled-task-coalesce-window"
+                >
+                  <Input
+                    id="scheduled-task-coalesce-window"
+                    type="number"
+                    nativeInput
+                    min={10}
+                    max={3600}
+                    placeholder="120"
+                    value={draft.coalesceWindowSeconds}
+                    onChange={(event) =>
+                      setDraft((current) => ({
+                        ...current,
+                        coalesceWindowSeconds: event.target.value,
+                      }))
+                    }
+                  />
+                </Field>
+                <p className="text-xs text-muted-foreground">
+                  Replay keys suppress repeat deliveries for 7 days. Coalescing runs the latest
+                  payload once when the window from the first delivery closes. Empty keys run
+                  normally.
+                </p>
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 space-y-1">
                     <Label htmlFor="scheduled-task-signature">Require signature</Label>
