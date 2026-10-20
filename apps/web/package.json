@@ -98,7 +98,6 @@
     "playwright": "1.60.0",
     "tailwindcss": "^4.0.0",
     "vite": "catalog:",
-    "vite-plus": "catalog:",
-    "vitest-browser-react": "2.3.0"
+    "vite-plus": "catalog:"
   }
 }

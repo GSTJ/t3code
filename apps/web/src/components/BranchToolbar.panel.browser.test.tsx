@@ -1,10 +1,10 @@
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import type { ComponentProps } from "react";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
 import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
-import { act, cleanup, render as renderUi } from "../../test/render";
+import { act, render as renderUi } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   worktreePath: "/tmp/worktree" as string | null,
@@ -38,20 +38,16 @@ import { BranchToolbar } from "./BranchToolbar";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import type { ServerUpdateTarget } from "./ServerUpdateAction";
 
-let container: HTMLDivElement;
-
-beforeEach(() => {
-  state.worktreePath = "/tmp/worktree";
+function render(
+  props: Partial<ComponentProps<typeof BranchToolbar>>,
+  {
+    container,
+    worktreePath = "/tmp/worktree",
+  }: { container?: HTMLElement; worktreePath?: string | null } = {},
+) {
+  state.worktreePath = worktreePath;
   state.showContextMenu.mockReset().mockResolvedValue("copy-path");
   state.writeTextToClipboard.mockReset().mockResolvedValue(true);
-  container = document.body.appendChild(document.createElement("div"));
-});
-
-afterEach(async () => {
-  await cleanup();
-});
-
-function render(props: Partial<ComponentProps<typeof BranchToolbar>>) {
   return renderUi(
     <ComposerSurface.Shell>
       <BranchToolbar
@@ -71,13 +67,13 @@ function render(props: Partial<ComponentProps<typeof BranchToolbar>>) {
         {...props}
       />
     </ComposerSurface.Shell>,
-    { container },
+    container ? { container } : {},
   );
 }
 
 it("keeps machine choices usable when the combined row's workspace is locked", async () => {
   const onEnvironmentChange = vi.fn();
-  await render({
+  await using screen = await render({
     onEnvironmentChange,
     availableEnvironments: ["local", "remote"].map((id) => ({
       environmentId: EnvironmentId.make(id),
@@ -87,9 +83,9 @@ it("keeps machine choices usable when the combined row's workspace is locked", a
       machine: "server",
     })),
   });
-  const trigger = container.querySelector("button")!;
+  const trigger = screen.container.querySelector("button")!;
   expect(trigger.textContent).toBe("local");
-  expect(container.querySelectorAll("button")).toHaveLength(1);
+  expect(screen.container.querySelectorAll("button")).toHaveLength(1);
 
   // A ctrl-click is a macOS secondary click; it must not open the menu.
   await act(async () => {
@@ -106,7 +102,7 @@ it("keeps machine choices usable when the combined row's workspace is locked", a
 });
 
 it("shows a started thread's primary machine as a static label in the composer", async () => {
-  await render({
+  await using screen = await render({
     layout: "composer",
     showGitControls: false,
     availableEnvironments: ["local", "remote"].map((id) => ({
@@ -117,8 +113,8 @@ it("shows a started thread's primary machine as a static label in the composer",
       machine: "server",
     })),
   });
-  expect(container.textContent).toBe("local");
-  expect(container.querySelector("button")).toBeNull();
+  expect(screen.container.textContent).toBe("local");
+  expect(screen.container.querySelector("button")).toBeNull();
 });
 
 it.each([
@@ -129,11 +125,10 @@ it.each([
 ] as const)(
   "copies only an existing workspace path with mode %s and worktree %s",
   async (envMode, worktreePath, copiedPath) => {
-    state.worktreePath = worktreePath;
-    await render({ envMode });
+    await using screen = await render({ envMode }, { worktreePath });
     const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
     await act(async () => {
-      container.querySelector('[aria-label="Run context"]')!.dispatchEvent(event);
+      screen.container.querySelector('[aria-label="Run context"]')!.dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(copiedPath !== null);
     if (copiedPath === null) {
@@ -155,6 +150,7 @@ it.each([
   "copies the pending update from the $layout composer chip",
   async ({ width, showGitControls }) => {
     await page.viewport(1000, 700);
+    const container = document.createElement("div");
     container.style.width = `${width}px`;
     container.style.setProperty("--chat-content-max-width", `${width}px`);
     const serverUpdate = {
@@ -165,24 +161,27 @@ it.each([
       selfUpdate: null,
       installation: { kind: "npm-global", prefix: "/opt/node" },
     } satisfies ServerUpdateTarget & { serverVersion: string };
-    await render({
-      layout: "composer",
-      envLocked: showGitControls,
-      showGitControls,
-      availableEnvironments: [
-        {
-          environmentId: serverUpdate.environmentId,
-          projectId: ProjectId.make("project"),
-          label: serverUpdate.serverLabel,
-          isPrimary: true,
-          machine: "server",
-        },
-      ],
-      serverUpdate,
-    });
+    await using screen = await render(
+      {
+        layout: "composer",
+        envLocked: showGitControls,
+        showGitControls,
+        availableEnvironments: [
+          {
+            environmentId: serverUpdate.environmentId,
+            projectId: ProjectId.make("project"),
+            label: serverUpdate.serverLabel,
+            isPrimary: true,
+            machine: "server",
+          },
+        ],
+        serverUpdate,
+      },
+      { container },
+    );
 
     expect(
-      container.querySelector('[data-slot="composer-shell"]')!.getBoundingClientRect().width,
+      screen.container.querySelector('[data-slot="composer-shell"]')!.getBoundingClientRect().width,
     ).toBe(width);
     const chip = page.getByRole("button", { name: /Build box|Copy update command/ });
     await expect.element(chip).toBeVisible();
