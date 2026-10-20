@@ -1,8 +1,8 @@
 import { EnvironmentId, ThreadId, type TerminalSummary } from "@t3tools/contracts";
-import { act, useEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { useEffect } from "react";
+import { expect, it, vi } from "vite-plus/test";
 
+import { render } from "../../test/render";
 import { useKnownTerminalSessions } from "./terminalSessions";
 
 const state = vi.hoisted(() => ({
@@ -23,7 +23,6 @@ vi.mock(import("./query"), async (original) => ({
       : { data: state.data, error: state.error }) as never,
 }));
 
-let root: Root;
 let current: ReturnType<typeof useKnownTerminalSessions>;
 const target = {
   environmentId: EnvironmentId.make("secondary"),
@@ -51,48 +50,37 @@ function Probe() {
   return null;
 }
 
-function render() {
-  return act(() => root.render(<Probe />));
+function setup() {
+  Object.assign(state, { canRead: true, data: null, error: null });
 }
 
-beforeEach(() => {
-  state.canRead = true;
-  state.data = null;
-  state.error = null;
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  root = createRoot(document.createElement("div"));
-});
-
-afterEach(async () => {
-  await act(() => root.unmount());
-  vi.unstubAllGlobals();
-});
-
 it("distinguishes missing metadata from an authoritative empty list across scope changes", async () => {
-  await render();
+  setup();
+  await using screen = await render(<Probe />);
   expect(current).toBeNull();
 
   state.data = [terminal];
-  await render();
+  await screen.rerender(<Probe />);
   expect(current?.[0]).toMatchObject({
     target: { environmentId: "secondary", terminalId: "term-1" },
     state: { hasRunningSubprocess: true },
   });
 
   state.canRead = false;
-  await render();
+  await screen.rerender(<Probe />);
   expect(current).toBeNull();
 
   state.canRead = true;
   state.data = [];
-  await render();
+  await screen.rerender(<Probe />);
   expect(current).toEqual([]);
 });
 
 it("does not reuse cached terminal metadata after a subscription failure", async () => {
+  setup();
   state.data = [terminal];
-  await render();
+  await using screen = await render(<Probe />);
   state.error = "Access denied";
-  await render();
+  await screen.rerender(<Probe />);
   expect(current).toBeNull();
 });
