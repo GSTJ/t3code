@@ -13,7 +13,7 @@ import {
   type ViewStyle,
 } from "react-native";
 
-import Animated, { FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
+import Animated, { FadeIn, LinearTransition } from "react-native-reanimated";
 
 import { cn } from "../lib/cn";
 import { AppText as Text } from "./ui/AppText";
@@ -24,7 +24,6 @@ const COMPOSER_TOOLBAR_GAP = 8;
 const COMPOSER_TOOLBAR_FADE_WIDTH = 18;
 const COMPOSER_TOOLBAR_SCROLL_EPSILON = 4;
 const INLINE_CONTROL_LABEL_ENTERING = FadeIn.duration(160);
-const INLINE_CONTROL_LABEL_EXITING = FadeOut.duration(120);
 // Android runs no composer layout transitions, so the toolbar never trails the dock.
 const INLINE_CONTROL_WIDTH_TRANSITION =
   Platform.OS === "android" ? undefined : LinearTransition.duration(180);
@@ -47,13 +46,17 @@ export function ComposerInlineControl(props: {
   readonly showChevron?: boolean;
 }) {
   const { scale, smallIconSize } = useAndroidControlSizing();
-  // The label fades while the control eases to its new width: one short transition
-  // per flip of iconOnly, so shrinking to the icon never snaps.
+  // The label fades in as the control widens, and leaves at once: an exiting view keeps
+  // drawing at its old place while the chevron moves into it. The clip keeps content laid out
+  // at the final width inside the frame while it eases there.
   const animatesLabel = props.iconOnly !== undefined;
   return (
     <Animated.View
       layout={animatesLabel ? INLINE_CONTROL_WIDTH_TRANSITION : undefined}
-      style={{ maxWidth: props.maxWidth ?? 190 }}
+      style={{
+        maxWidth: props.maxWidth ?? 190,
+        overflow: animatesLabel ? "hidden" : undefined,
+      }}
     >
       <Pressable
         accessibilityLabel={props.accessibilityLabel ?? props.label}
@@ -90,7 +93,6 @@ export function ComposerInlineControl(props: {
           <Animated.View
             className="shrink"
             entering={animatesLabel ? INLINE_CONTROL_LABEL_ENTERING : undefined}
-            exiting={animatesLabel ? INLINE_CONTROL_LABEL_EXITING : undefined}
           >
             <Text
               className={cn(
