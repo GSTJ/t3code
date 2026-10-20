@@ -96,19 +96,15 @@ function setup() {
 // The webview releases its desktop tab on a timer after unmount; run it before the test ends
 // so it cannot land in the next one.
 async function renderHost(ui: ReactNode) {
-  const screen = await render(ui);
-  const disposeScreen = screen[Symbol.asyncDispose];
-  return Object.assign(screen, {
-    async [Symbol.asyncDispose]() {
-      try {
-        using _timers = fakeTimers();
-        await screen.unmount();
-        await vi.advanceTimersByTimeAsync(0);
-      } finally {
-        await disposeScreen();
-      }
-    },
+  await using stack = new AsyncDisposableStack();
+  const screen = stack.use(await render(ui));
+  stack.defer(async () => {
+    using _timers = fakeTimers();
+    await screen.unmount();
+    await vi.advanceTimersByTimeAsync(0);
   });
+  const environment = stack.move();
+  return Object.assign(screen, { [Symbol.asyncDispose]: () => environment.disposeAsync() });
 }
 
 describe("HostedBrowserWebview settings hydration", () => {
@@ -239,12 +235,15 @@ describe("HostedBrowserWebview viewport layout", () => {
       browserDefaultZoomFactor: 1.5,
     });
     await act(() => ensureClientSettingsHydrated());
-    const screen = await renderHost(webview(viewport));
+    await using stack = new AsyncDisposableStack();
+    const screen = stack.use(await renderHost(webview(viewport)));
     const guest = screen.container.querySelector("webview");
     expect(guest).not.toBeNull();
+    const environment = stack.move();
     return Object.assign(screen, {
       guest: guest!,
       setViewport: (next: PreviewViewportSetting) => screen.rerender(webview(next)),
+      [Symbol.asyncDispose]: () => environment.disposeAsync(),
     });
   }
 
@@ -303,7 +302,8 @@ describe("HostedBrowserWebview viewport layout", () => {
     const { guest } = screen;
     expect(guest.getBoundingClientRect()).toMatchObject({ width: 1200, height: 900 });
 
-    using _noBridge = stubGlobal("desktopBridge", undefined);
+    // `_bridge` puts the original back after the unmount, so the unmount still sees no bridge.
+    Reflect.set(globalThis, "desktopBridge", undefined);
     await act(() => window.dispatchEvent(new Event("resize")));
     expect(guest.getBoundingClientRect()).toMatchObject({ width: 1200, height: 900 });
   });

@@ -139,8 +139,11 @@ function tabs(
   );
 }
 
-async function renderTabs(...args: Parameters<typeof tabs>) {
+function setup() {
   setAudioMuted.mockClear();
+}
+
+function renderTabs(...args: Parameters<typeof tabs>) {
   return render(tabs(...args));
 }
 
@@ -151,6 +154,7 @@ const button = (container: HTMLElement, name: string) =>
 
 describe("preview tab favicon", () => {
   it("prefers a live capture and never asks a public provider about a private hostname", async () => {
+    setup();
     await using screen = await renderTabs(favicon(PIXEL_A, "http://24x.xf.local/"));
     expect(imageSources(screen.container)).toEqual([PIXEL_A]);
 
@@ -159,6 +163,7 @@ describe("preview tab favicon", () => {
   });
 
   it("keeps route-specific captures isolated between live tabs on one origin", async () => {
+    setup();
     await using screen = await renderTabs(
       favicon(PIXEL_A, "http://24x.xf.local/"),
       favicon(PIXEL_B, "http://24x.xf.local/admin"),
@@ -167,6 +172,7 @@ describe("preview tab favicon", () => {
   });
 
   it("hides a capture while the server session still describes another origin", async () => {
+    setup();
     await using screen = await renderTabs(favicon(PIXEL_A, "https://example.com/"));
     expect(imageSources(screen.container)).not.toContain(PIXEL_A);
   });
@@ -177,6 +183,7 @@ describe("preview tab audio toggle", () => {
     { audible: false, audioMuted: false },
     { audible: false, audioMuted: true },
   ])("is absent for a silent tab (muted=$audioMuted)", async (audio) => {
+    setup();
     await using screen = await renderTabs(null, undefined, audio);
     expect(button(screen.container, "Mute Local site")).toBeUndefined();
     expect(button(screen.container, "Unmute Local site")).toBeUndefined();
@@ -186,12 +193,14 @@ describe("preview tab audio toggle", () => {
     { audioMuted: false, label: "Mute Local site", nextMuted: true },
     { audioMuted: true, label: "Unmute Local site", nextMuted: false },
   ])("$label addresses the desktop by runtime tab id", async ({ audioMuted, label, nextMuted }) => {
+    setup();
     await using screen = await renderTabs(null, undefined, { audible: true, audioMuted });
     await act(() => button(screen.container, label)!.click());
     expect(setAudioMuted).toHaveBeenCalledExactlyOnceWith("runtime:tab-1", nextMuted);
   });
 
   it("hides the toggle when no runtime tab id can be resolved", async () => {
+    setup();
     await using screen = await renderTabs(null, undefined, { audible: true }, null);
     expect(button(screen.container, "Mute Local site")).toBeUndefined();
   });

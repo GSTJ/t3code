@@ -127,13 +127,14 @@ describe("ChatMarkdown theme drafts", () => {
         return <ChatMarkdown cwd={undefined} text={"```typescript\nconst answer = 42;\n```"} />;
       }
       await getSyntaxHighlighterPromise("typescript");
+      await using screen = await render(<Preview />);
+      // Disposed before the unmount, while useTheme still listens for the storage event.
       using _storage = {
         [Symbol.dispose]() {
           localStorage.clear();
           window.dispatchEvent(new StorageEvent("storage", { key: null }));
         },
       };
-      await using screen = await render(<Preview />);
       const { container } = screen;
       await act(async () => {
         selection.setTheme(savedAppearance);
