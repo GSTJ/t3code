@@ -530,12 +530,10 @@ function AdaptiveWorkspaceLayoutContent(
   const contentTargetWidth = layout.usesSplitView
     ? Math.max(0, panes.contentPaneWidth - inspectorColumnTargetWidth)
     : null;
-  const [contentSizing, setContentSizing] = useState({
+  const [listPaneSizing, setListPaneSizing] = useState({
     viewportWidth,
     workspacePage,
-    target: contentTargetWidth,
     sidebarVisible: panes.primarySidebarVisible,
-    width: contentTargetWidth,
     listPaneTarget: layout.listPaneWidth,
     listPaneFloor: layout.listPaneWidth,
     listPaneCeiling: layout.listPaneWidth,
@@ -543,69 +541,80 @@ function AdaptiveWorkspaceLayoutContent(
   });
   if (
     Platform.OS === "android" &&
-    (contentSizing.viewportWidth !== viewportWidth ||
-      contentSizing.workspacePage !== workspacePage ||
-      contentSizing.target !== contentTargetWidth ||
-      contentSizing.sidebarVisible !== panes.primarySidebarVisible ||
-      contentSizing.listPaneTarget !== layout.listPaneWidth)
+    (listPaneSizing.viewportWidth !== viewportWidth ||
+      listPaneSizing.workspacePage !== workspacePage ||
+      listPaneSizing.sidebarVisible !== panes.primarySidebarVisible ||
+      listPaneSizing.listPaneTarget !== layout.listPaneWidth)
   ) {
-    // A workspace page swaps the sidebar in the same frame, so nothing animates to wait for.
-    const sameViewport =
-      contentSizing.viewportWidth === viewportWidth &&
-      contentSizing.workspacePage === workspacePage;
-    const openingSidebar =
-      sameViewport && !contentSizing.sidebarVisible && panes.primarySidebarVisible;
     // A book-posture hinge resizes the visible list pane instead of revealing it.
     const resizingSidebar =
-      sameViewport &&
-      contentSizing.sidebarVisible &&
+      listPaneSizing.viewportWidth === viewportWidth &&
+      listPaneSizing.workspacePage === workspacePage &&
+      listPaneSizing.sidebarVisible &&
       panes.primarySidebarVisible &&
-      contentSizing.listPaneTarget !== layout.listPaneWidth;
-    const keepWide =
-      (openingSidebar || resizingSidebar) &&
-      contentSizing.width !== null &&
-      contentTargetWidth !== null;
-    setContentSizing({
+      listPaneSizing.listPaneTarget !== layout.listPaneWidth;
+    setListPaneSizing({
       viewportWidth,
       workspacePage,
-      target: contentTargetWidth,
       sidebarVisible: panes.primarySidebarVisible,
-      // Clip the wide navigator while the sidebar opens or widens, then reflow once at the
-      // end. Narrowing it first exposes an empty strip before the sidebar arrives.
-      width: keepWide
-        ? Math.max(contentSizing.width ?? 0, contentTargetWidth ?? 0)
-        : contentTargetWidth,
       listPaneTarget: layout.listPaneWidth,
       // While a hinge resizes the list, its width follows the pane edge within this span. A
       // retarget mid-animation widens the span, since the edge is still somewhere inside it.
       listPaneFloor: resizingSidebar
-        ? Math.min(contentSizing.listPaneFloor ?? 0, layout.listPaneWidth ?? 0)
+        ? Math.min(listPaneSizing.listPaneFloor ?? 0, layout.listPaneWidth ?? 0)
         : layout.listPaneWidth,
       listPaneCeiling: resizingSidebar
-        ? Math.max(contentSizing.listPaneCeiling ?? 0, layout.listPaneWidth ?? 0)
+        ? Math.max(listPaneSizing.listPaneCeiling ?? 0, layout.listPaneWidth ?? 0)
         : layout.listPaneWidth,
-      revision: contentSizing.revision + 1,
+      revision: listPaneSizing.revision + 1,
     });
   }
-  const settleContentWidth = (revision: number) => {
-    setContentSizing((current) =>
+  const settleListPane = (revision: number) => {
+    setListPaneSizing((current) =>
       current.revision !== revision ||
-      (current.width === current.target &&
-        current.listPaneFloor === current.listPaneTarget &&
+      (current.listPaneFloor === current.listPaneTarget &&
         current.listPaneCeiling === current.listPaneTarget)
         ? current
         : {
             ...current,
-            width: current.target,
             listPaneFloor: current.listPaneTarget,
             listPaneCeiling: current.listPaneTarget,
           },
     );
   };
-  const listPaneFloor = contentSizing.listPaneFloor ?? 0;
-  const listPaneCeiling = contentSizing.listPaneCeiling ?? 0;
-  const contentSettledWidth = Platform.OS === "android" ? contentSizing.width : contentTargetWidth;
-  const contentRevision = contentSizing.revision;
+  const listPaneFloor = listPaneSizing.listPaneFloor ?? 0;
+  const listPaneCeiling = listPaneSizing.listPaneCeiling ?? 0;
+  const listPaneRevision = listPaneSizing.revision;
+  // Android lays the content out at its new width as soon as a pane toggles, then holds it
+  // against the edge that stays put while the other one slides, so nothing reflows after the
+  // panes land. A sliding sidebar uncovers the strip it is about to fill, or covers the content
+  // until it is gone.
+  const contentLeftTarget =
+    navigationRailWidth +
+    (shouldRenderPrimarySidebar && !workspacePage && panes.primarySidebarVisible
+      ? (layout.listPaneWidth ?? 0) + (layout.listPaneGap ?? 0)
+      : 0);
+  const [contentAnchor, setContentAnchor] = useState({
+    viewportWidth,
+    left: contentLeftTarget,
+    inspector: inspectorColumnTargetWidth,
+    end: false,
+  });
+  if (
+    Platform.OS === "android" &&
+    (contentAnchor.viewportWidth !== viewportWidth ||
+      contentAnchor.left !== contentLeftTarget ||
+      contentAnchor.inspector !== inspectorColumnTargetWidth)
+  ) {
+    setContentAnchor({
+      viewportWidth,
+      left: contentLeftTarget,
+      inspector: inspectorColumnTargetWidth,
+      end:
+        contentAnchor.viewportWidth === viewportWidth &&
+        contentAnchor.inspector === inspectorColumnTargetWidth,
+    });
+  }
 
   const renderedSidebarWidth = useSharedValue(
     panes.primarySidebarVisible ? (layout.listPaneWidth ?? 0) + (layout.listPaneGap ?? 0) : 0,
@@ -629,7 +638,7 @@ function AdaptiveWorkspaceLayoutContent(
     // The content beside it already took its final width when the page closed.
     renderedSidebarWidth.set(
       withTiming(targetWidth, snap ? { duration: 0 } : WORKSPACE_PANE_TIMING, (finished) => {
-        if (finished && Platform.OS === "android") runOnJS(settleContentWidth)(contentRevision);
+        if (finished && Platform.OS === "android") runOnJS(settleListPane)(listPaneRevision);
       }),
     );
   }, [
@@ -640,8 +649,8 @@ function AdaptiveWorkspaceLayoutContent(
     panes.primarySidebarVisible,
     renderedSidebarWidth,
     renderedRailWidth,
-    settleContentWidth,
-    contentRevision,
+    settleListPane,
+    listPaneRevision,
     workspacePage,
   ]);
   const railAnimatedStyle = useAnimatedStyle(() => ({ width: renderedRailWidth.value }));
@@ -829,20 +838,24 @@ function AdaptiveWorkspaceLayoutContent(
               <View
                 collapsable={false}
                 style={
-                  contentSettledWidth !== null
+                  contentTargetWidth !== null
                     ? {
                         flex: 1,
-                        width: contentSettledWidth,
+                        width: contentTargetWidth,
+                        alignSelf: contentAnchor.end ? "flex-end" : "flex-start",
                       }
                     : { flex: 1 }
                 }
               >
+                {/* Android holds the content still, so its floating controls keep its width. */}
                 <WorkspaceContentWidthContext
-                  value={layout.usesSplitView ? renderedContentWidth : null}
+                  value={
+                    layout.usesSplitView && Platform.OS !== "android" ? renderedContentWidth : null
+                  }
                 >
                   <WorkspaceSettledContentWidthContext
                     value={
-                      Platform.OS === "android" && layout.usesSplitView ? contentSettledWidth : null
+                      Platform.OS === "android" && layout.usesSplitView ? contentTargetWidth : null
                     }
                   >
                     {props.children}
