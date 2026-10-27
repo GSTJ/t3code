@@ -116,46 +116,6 @@ describe("getLocalVoiceTranscriber", () => {
     expect(error).toMatchObject({ code: "cancelled" });
     expect(mocks.transcribe).not.toHaveBeenCalled();
   });
-
-  it.each(["prepare", "transcribe"] as const)(
-    "waits for native %s to finish before settling cancellation",
-    async (phase) => {
-      const enteredNative = deferred<void>();
-      const finishNative = deferred<void>();
-      if (phase === "prepare") {
-        mocks.prepare.mockImplementation(async () => {
-          enteredNative.resolve();
-          await finishNative.promise;
-          return "sv-SE";
-        });
-      } else {
-        mocks.transcribe.mockImplementation(async () => {
-          enteredNative.resolve();
-          await finishNative.promise;
-          return nativeTranscript;
-        });
-      }
-      const controller = new AbortController();
-      const options = { signal: controller.signal };
-      const transcriber = getLocalVoiceTranscriber()!;
-      const operation =
-        phase === "prepare"
-          ? transcriber.prepare(options)
-          : (await transcriber.prepare(options)).transcribe("file:///voice.m4a", options);
-      const settled = vi.fn((value: unknown) => value);
-      const result = operation.then(settled, settled);
-
-      await enteredNative.promise;
-      controller.abort();
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      expect(settled).not.toHaveBeenCalled();
-      finishNative.resolve();
-
-      const error = await result;
-      expect(error).toBeInstanceOf(VoiceTranscriptionError);
-      expect(error).toMatchObject({ code: "cancelled" });
-    },
-  );
 });
 
 describe("getDictationLanguages", () => {

@@ -8,6 +8,7 @@ export const DEVICE_DICTATION_LANGUAGE_LABEL = "Device language";
 /** The languages this device can transcribe, or undefined while they load. */
 export function useDictationLanguages(): ReadonlyArray<DictationLanguage> | undefined {
   const [languages, setLanguages] = useState<ReadonlyArray<DictationLanguage>>();
+  // oxlint-disable-next-line t3code/react-effect-budget -- Load the native device capabilities when this screen mounts.
   useEffect(() => {
     let cancelled = false;
     getDictationLanguages().then(
