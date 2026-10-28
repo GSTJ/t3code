@@ -106,6 +106,15 @@ describe("mobile preferences store", () => {
       const chosen = yield* makePreferencesStore({ voiceInputLocale: "yue-Hant-HK" });
       expect(yield* chosen.store.load).toEqual({ voiceInputLocale: "yue-Hant-HK" });
 
+      const extended = yield* makePreferencesStore({ voiceInputLocale: "en-US-u-ca-gregory" });
+      expect(yield* extended.store.load).toEqual({ voiceInputLocale: "en-US-u-ca-gregory" });
+
+      const privateUse = yield* makePreferencesStore({ voiceInputLocale: "en-US-x-a" });
+      expect(yield* privateUse.store.load).toEqual({ voiceInputLocale: "en-US-x-a" });
+
+      const incomplete = yield* makePreferencesStore({ voiceInputLocale: "en-US-u" });
+      expect(yield* incomplete.store.load).toEqual({});
+
       const malformed = yield* makePreferencesStore({ voiceInputLocale: "Portuguese" });
       expect(yield* malformed.store.load).toEqual({});
     }),

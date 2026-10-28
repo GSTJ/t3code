@@ -168,7 +168,8 @@ export class MobilePreferencesStore extends Context.Service<
 >()("@t3tools/mobile/persistence/MobilePreferencesStore") {}
 
 // Shape only; whether the device can transcribe the tag is checked when preparing voice input.
-const LANGUAGE_TAG = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
+const LANGUAGE_TAG =
+  /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{2,8})*(?:-[0-9A-WY-Za-wy-z](?:-[A-Za-z0-9]{2,8})+)*(?:-[xX](?:-[A-Za-z0-9]{1,8})+)?$/;
 
 function isLanguageTag(value: unknown): value is string {
   return typeof value === "string" && LANGUAGE_TAG.test(value);
